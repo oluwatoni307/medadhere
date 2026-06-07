@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "85073627465",
+    "project_id": "medadhere-189f9",
+    "storage_bucket": "medadhere-189f9.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:85073627465:android:6d7fa56a4ddcf0fb147298",
+        "android_client_info": {
+          "package_name": "com.example.medadhere"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "85073627465-55bg38i6a4s745t7dc70nq4ai5jkvtnv.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.medadhere",
+            "certificate_hash": "21d3ccec6e97a9b6409f59cc419a65b48ca40db3"
+          }
+        },
+        {
+          "client_id": "85073627465-3o6e843j7iqru527mi9iu48c3jfq8l7u.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDyG_OpQRYWcgCiGQmFL8Y2lTWT-QhERxM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "85073627465-3o6e843j7iqru527mi9iu48c3jfq8l7u.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
