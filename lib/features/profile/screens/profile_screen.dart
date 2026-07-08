@@ -39,6 +39,16 @@ final _activeMedicationCountProvider = FutureProvider.family<int, String>((
   return meds.length;
 });
 
+// ─── fallback constants ───────────────────────────────────
+
+// Used whenever we can't safely derive a display name or initials from
+// the authenticated user (e.g. displayName and email are both empty).
+// Keeping these as named constants instead of inline literals makes the
+// fallback intentional rather than an accidental empty string reaching
+// widgets that assume non-empty text.
+const String _kFallbackDisplayName = 'User';
+const String _kFallbackInitials = '?';
+
 // ─── screen ───────────────────────────────────────────────
 
 class ProfileScreen extends ConsumerWidget {
@@ -58,8 +68,19 @@ class ProfileScreen extends ConsumerWidget {
         data: (appUser) {
           if (appUser == null) return const SizedBox.shrink();
 
-          final displayName =
-              appUser.displayName ?? appUser.email.split('@').first;
+          // appUser.displayName currently always resolves to null in
+          // practice (it's sourced from Firebase Auth's native profile,
+          // which this app never writes to — name changes are persisted
+          // to Firestore instead). We still honor it if present in case
+          // that ever changes upstream, but the real fallback path is
+          // email — and email itself can be empty (see AuthService
+          // ._mapToAppUser's `user.email ?? ''`), so we guard the final
+          // result rather than trusting either source to be non-empty.
+          final rawDisplayName =
+              appUser.displayName ?? _localPartOf(appUser.email);
+          final displayName = rawDisplayName.isEmpty
+              ? _kFallbackDisplayName
+              : rawDisplayName;
 
           final countAsync = ref.watch(
             _activeMedicationCountProvider(appUser.uid),
@@ -74,6 +95,15 @@ class ProfileScreen extends ConsumerWidget {
         },
       ),
     );
+  }
+
+  // Safe local-part extraction — a malformed or empty email (no '@',
+  // or empty string entirely) must never throw here.
+  static String _localPartOf(String email) {
+    if (email.isEmpty) return '';
+    final atIndex = email.indexOf('@');
+    if (atIndex <= 0) return email; // no '@' or leading '@': use as-is
+    return email.substring(0, atIndex);
   }
 }
 
@@ -92,8 +122,16 @@ class _ProfileLoaded extends StatelessWidget {
   final AsyncValue<int> medicationCount;
   final VoidCallback onSignOut;
 
+  // Hardened: previously threw RangeError on an empty string (parts.first[0]
+  // with parts == ['']). Now every exit path returns a non-empty string,
+  // and there is no path left that indexes into an empty String.
   String _initials(String name) {
-    final parts = name.trim().split(' ');
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return _kFallbackInitials;
+
+    final parts = trimmed.split(' ').where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return _kFallbackInitials;
+
     if (parts.length >= 2) {
       return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
     }
@@ -102,7 +140,19 @@ class _ProfileLoaded extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final typography = Theme.of(context).extension<AppTypography>()!;
+    // Hardened: Theme.of(context).extension<AppTypography>() can return
+    // null if this screen is ever rendered under a Theme that doesn't
+    // register the AppTypography extension (a misconfigured test harness,
+    // a route pushed outside the themed MaterialApp, etc). A force-unwrap
+    // here would crash mid-build with no visible error in release mode —
+    // the same failure shape that caused the blank-screen bug. Falling
+    // back to Theme.of(context).textTheme keeps the screen rendering
+    // (with slightly different typography) instead of disappearing.
+    final typography = Theme.of(context).extension<AppTypography>();
+
+    if (typography == null) {
+      return _ProfileThemeFallback(displayName: displayName, email: email);
+    }
 
     return SingleChildScrollView(
       child: Column(
@@ -229,6 +279,37 @@ class _ProfileLoaded extends StatelessWidget {
 
           SizedBox(height: AppSpacing.space32),
         ],
+      ),
+    );
+  }
+}
+
+// ─── theme-missing fallback ───────────────────────────────
+
+// Minimal, dependency-free rendering used only if AppTypography is ever
+// unavailable on the current Theme. Deliberately uses Theme.of(context)
+// .textTheme (always present on any MaterialApp) instead of AppTypography
+// tokens, so this widget can never fail the same way _ProfileLoaded could.
+class _ProfileThemeFallback extends StatelessWidget {
+  const _ProfileThemeFallback({required this.displayName, required this.email});
+
+  final String displayName;
+  final String email;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(displayName, style: textTheme.headlineSmall),
+            const SizedBox(height: 4),
+            Text(email, style: textTheme.bodySmall),
+          ],
+        ),
       ),
     );
   }
@@ -448,7 +529,11 @@ class _ProfileError extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final typography = Theme.of(context).extension<AppTypography>()!;
+    final typography = Theme.of(context).extension<AppTypography>();
+    final headingStyle =
+        typography?.textHeading2 ?? Theme.of(context).textTheme.headlineSmall;
+    final bodyStyle =
+        typography?.textBodySmall ?? Theme.of(context).textTheme.bodySmall;
 
     return Center(
       child: Padding(
@@ -458,16 +543,12 @@ class _ProfileError extends StatelessWidget {
           children: [
             Text(
               'Something went wrong',
-              style: typography.textHeading2.copyWith(
-                color: AppColors.colorTextPrimary,
-              ),
+              style: headingStyle?.copyWith(color: AppColors.colorTextPrimary),
             ),
             SizedBox(height: AppSpacing.space8),
             Text(
               message,
-              style: typography.textBodySmall.copyWith(
-                color: AppColors.colorTextSecondary,
-              ),
+              style: bodyStyle?.copyWith(color: AppColors.colorTextSecondary),
               textAlign: TextAlign.center,
             ),
             SizedBox(height: AppSpacing.space24),

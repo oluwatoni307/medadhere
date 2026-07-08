@@ -53,12 +53,17 @@ class StreakSummary {
 
   /// Safe fallback — used when AdherenceFeatureService returns empty list
   /// or throws. Renders as firstTime. No misleading data shown.
+  ///
+  /// rollingRate7d and previousDayAdherence are 0.0, not 1.0 — this is a
+  /// "no doses logged yet" state, not a "fully adherent" state. Displaying
+  /// 1.0 here would render as 100% on a cold-start screen, which is the
+  /// exact misleading data this fallback exists to avoid.
   static const empty = StreakSummary(
     currentStreakDays: 0,
     lastStreakDays: 0,
     streakDisplayState: StreakDisplayState.firstTime,
-    rollingRate7d: 1.0,
-    previousDayAdherence: 1.0,
+    rollingRate7d: 0.0,
+    previousDayAdherence: 0.0,
     postMissRecoveryRate: 0.0,
     isColdStart: true,
     riskLevel: AdherenceRiskLevel.onTrack,

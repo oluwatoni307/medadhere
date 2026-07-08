@@ -61,14 +61,26 @@ class AdherenceVisualizationService {
           if (status == DoseStatus.missed) missedCount++;
           if (status == DoseStatus.skipped) skippedCount++;
         }
+        const priorityOrder = [
+          DoseStatus.missed,
+          DoseStatus.overdue,
+          DoseStatus.skipped,
+          DoseStatus.dueNow,
+          DoseStatus.later,
+          DoseStatus.taken,
+        ];
 
-        DoseStatus primaryStatus = DoseStatus.later;
+        final dayStatuses = statusMap.values.toList();
+        final primaryStatus = dayStatuses.isEmpty
+            ? DoseStatus.later
+            : priorityOrder.firstWhere(
+                (s) => dayStatuses.contains(s),
+                orElse: () => DoseStatus.later,
+              );
+
         DateTime? scheduledTime;
-
         if (med.times.isNotEmpty) {
-          final timeStr = med.times.first;
-          primaryStatus = statusMap[timeStr] ?? DoseStatus.later;
-          scheduledTime = TimeParser.parseTimeString(timeStr, dayStart);
+          scheduledTime = TimeParser.parseTimeString(med.times.first, dayStart);
         }
 
         entries.add(

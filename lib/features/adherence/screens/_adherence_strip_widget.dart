@@ -664,9 +664,13 @@ _DotConfig _dotConfig(DoseStatus status) => switch (status) {
     symbol: '–',
   ),
   DoseStatus.overdue => _DotConfig(
-    background: AppColors.badgeMissedBackground,
-    border: AppColors.badgeMissedText,
-    foreground: AppColors.badgeMissedText,
+    background: const Color(
+      0xFFE8DDE3,
+    ), // plum surface wash — deliberately distinct hue, not in AppColors
+    border: const Color(
+      0xFF6B3D52,
+    ), // deep plum — hardcoded, visually separate from all arc state tokens
+    foreground: const Color(0xFF6B3D52),
     symbol: '!',
   ),
 };
