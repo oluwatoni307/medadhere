@@ -43,7 +43,7 @@ final class HomeNotifierProvider
   }
 }
 
-String _$homeNotifierHash() => r'72e5b570df7af955a47967139fdf7d0183b275bb';
+String _$homeNotifierHash() => r'a5bf69f354c5834521c4ea1da54d061f9081d2b3';
 
 abstract class _$HomeNotifier
     extends $Notifier<AsyncValue<List<DueMedicationEntry>>> {
@@ -71,3 +71,42 @@ abstract class _$HomeNotifier
     element.handleCreate(ref, build);
   }
 }
+
+@ProviderFor(todaySummary)
+final todaySummaryProvider = TodaySummaryProvider._();
+
+final class TodaySummaryProvider
+    extends
+        $FunctionalProvider<
+          AsyncValue<TodaySummary>,
+          TodaySummary,
+          FutureOr<TodaySummary>
+        >
+    with $FutureModifier<TodaySummary>, $FutureProvider<TodaySummary> {
+  TodaySummaryProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'todaySummaryProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$todaySummaryHash();
+
+  @$internal
+  @override
+  $FutureProviderElement<TodaySummary> $createElement(
+    $ProviderPointer pointer,
+  ) => $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<TodaySummary> create(Ref ref) {
+    return todaySummary(ref);
+  }
+}
+
+String _$todaySummaryHash() => r'bdc0a25a73ef3020ecfd34d010ad6c9fe6372b3b';

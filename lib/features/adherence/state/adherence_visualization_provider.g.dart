@@ -55,7 +55,7 @@ final class AdherenceStripProvider
   }
 }
 
-String _$adherenceStripHash() => r'1d97b4ddc1b6f3f8a711337756d004e14626e7bb';
+String _$adherenceStripHash() => r'3a16c56cb8b1d63d9b8f81628b6a495dd00c0c3c';
 
 /// 30-day line chart — aggregate daily completion rates.
 /// Slower-changing — does not need to invalidate on every dose log.
@@ -104,7 +104,7 @@ final class AdherenceMonthProvider
   }
 }
 
-String _$adherenceMonthHash() => r'd9ff194748152f686b4d0b35dac097624d843b4e';
+String _$adherenceMonthHash() => r'a4fa2e557bbf1a8deea3572300263fcd9d81c0f0';
 
 /// 90-day bar chart — aggregate weekly completion rates and trend direction.
 /// Slowest-changing — invalidate daily or on explicit refresh only.
@@ -153,4 +153,4 @@ final class AdherenceTrendProvider
   }
 }
 
-String _$adherenceTrendHash() => r'a6f2eaedb918200126be07e28821261e5bc7f414';
+String _$adherenceTrendHash() => r'e94920b133d3b762936e8a2ba285cda8e35fb27d';

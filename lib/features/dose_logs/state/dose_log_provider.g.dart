@@ -41,7 +41,7 @@ final class DoseLogNotifierProvider
   }
 }
 
-String _$doseLogNotifierHash() => r'826429cf629a093d57c187cce0c95c11a9b654db';
+String _$doseLogNotifierHash() => r'c98d0adb8410be4ca8fbc04aed11c35e2885d7df';
 
 abstract class _$DoseLogNotifier extends $Notifier<DoseLogState> {
   DoseLogState build();

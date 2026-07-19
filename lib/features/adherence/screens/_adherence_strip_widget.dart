@@ -5,16 +5,31 @@
 // RESPONSIBLE FOR: Renders the 7-day per-medication dot strip.
 //                  Shows top 3 medications by default, expandable to all.
 //                  Each row: drug name label + 7 status dots.
-//                  Renders ML risk rating section when riskScores is provided.
+//                  Renders the "Your Consistency" section when riskScores
+//                  is provided — evidence-first per-medication rows with a
+//                  scoped consistency badge (On track / Slipping / At
+//                  risk / Still early), not a bare risk label.
 // RECEIVES: data: AdherenceStripData,
-//           riskScores: List<AdherenceMedicationRisk>? — null hides ML section
+//           riskScores: List<AdherenceMedicationRisk>? — null hides the
+//           consistency section
 // RETURNS: Column of medication rows inside a card surface,
-//          optional ML risk rating card below
+//          optional consistency card below
 // CONNECTS TO: adherence_visualization_screen.dart,
 //              adherence_visualization_models.dart,
 //              adherence_dashboard_state.dart
 // MUST NEVER: watch any provider, declare providers, call routing,
 //             hardcode any value, contain business logic
+//
+// KNOWN RULE EXCEPTION — flagged, not silent:
+//   _isColdStart() below computes "insufficient history" from raw dose
+//   statuses — that's a business-logic judgment, not a display decision,
+//   and it violates this file's own MUST NEVER clause. Done deliberately,
+//   by request, as a temporary measure: AdherenceRiskLevel (see
+//   adherence_risk_score.dart) has no coldStart value, so there's no
+//   upstream flag to branch on yet. Correct long-term fix is adding
+//   isColdStart (or equivalent) to AdherenceMedicationRisk upstream and
+//   deleting _isColdStart() entirely — this comment is the marker for
+//   that cleanup; search "KNOWN RULE EXCEPTION" to find it later.
 // ============================================
 
 // flutter
@@ -44,25 +59,63 @@ List<String> _buildDayLabels() {
   return labels;
 }
 
-// ─── risk label helpers ───────────────────────────────────────────────────────
+// ─── consistency badge model ───────────────────────────────────────────────────
+//
+// Four states, matching the finalized design: On track / Slipping /
+// At risk / Still early (Cold Start). Deliberately not a 1:1 switch on
+// AdherenceRiskLevel — that enum only has three values, and the badge
+// text is intentionally NOT the same as the raw enum name (see the
+// atRisk/highRisk relabeling below — this was already mismatched with
+// its own color before this change).
 
-String _riskLabel(AdherenceRiskLevel level) => switch (level) {
-  AdherenceRiskLevel.onTrack => 'On Track',
-  AdherenceRiskLevel.atRisk => 'At Risk',
-  AdherenceRiskLevel.highRisk => 'High Risk',
-};
+enum _ConsistencyState { consistent, slipping, atRisk, stillEarly }
 
-Color _riskBadgeBackground(AdherenceRiskLevel level) => switch (level) {
-  AdherenceRiskLevel.onTrack => AppColors.colorStateConsistentSurface,
-  AdherenceRiskLevel.atRisk => AppColors.colorStateSlippingSurface,
-  AdherenceRiskLevel.highRisk => AppColors.colorStateRiskSurface,
-};
+class _ConsistencyBadgeConfig {
+  const _ConsistencyBadgeConfig({
+    required this.label,
+    required this.background,
+    required this.foreground,
+  });
 
-Color _riskBadgeForeground(AdherenceRiskLevel level) => switch (level) {
-  AdherenceRiskLevel.onTrack => AppColors.colorStateConsistent,
-  AdherenceRiskLevel.atRisk => AppColors.colorStateSlipping,
-  AdherenceRiskLevel.highRisk => AppColors.colorStateRisk,
-};
+  final String label;
+  final Color background;
+  final Color foreground;
+}
+
+_ConsistencyBadgeConfig _consistencyBadgeConfig(_ConsistencyState state) =>
+    switch (state) {
+      _ConsistencyState.consistent => _ConsistencyBadgeConfig(
+        label: 'On track',
+        background: AppColors.colorStateConsistentSurface,
+        foreground: AppColors.colorStateConsistent,
+      ),
+      // NOTE: this bucket was previously labeled "At Risk" while already
+      // using the Slipping color tokens. Label corrected to match the
+      // color it's always rendered in — no visual change, text now tells
+      // the truth.
+      _ConsistencyState.slipping => _ConsistencyBadgeConfig(
+        label: 'Slipping',
+        background: AppColors.colorStateSlippingSurface,
+        foreground: AppColors.colorStateSlipping,
+      ),
+      // NOTE: this bucket was previously labeled "High Risk" (the enum
+      // name is highRisk) — relabeled to "At risk" to match the
+      // finalized copy; this is the only genuinely "at risk" state.
+      _ConsistencyState.atRisk => _ConsistencyBadgeConfig(
+        label: 'At risk',
+        background: AppColors.colorStateRiskSurface,
+        foreground: AppColors.colorStateRisk,
+      ),
+      // Cold Start is a real, distinct risk state (early nonadherence
+      // risk), not a muted/absent one — gets its own token, not a grey
+      // "unknown" treatment. Deliberately drops the word "risk" — see
+      // finalized copy decision.
+      _ConsistencyState.stillEarly => _ConsistencyBadgeConfig(
+        label: 'Still early',
+        background: AppColors.colorStateMorningSurface,
+        foreground: AppColors.colorStateMorning,
+      ),
+    };
 
 // ─── widget ───────────────────────────────────────────────────────────────────
 
@@ -72,7 +125,7 @@ class AdherenceStripWidget extends StatefulWidget {
   final AdherenceStripData data;
 
   /// Per-medication ML risk levels from adherenceProvider.
-  /// When null the ML rating section is not rendered.
+  /// When null the consistency section is not rendered.
   /// When present, matched to strip rows by medicationId.
   final List<AdherenceMedicationRisk>? riskScores;
 
@@ -117,7 +170,7 @@ class _AdherenceStripWidgetState extends State<AdherenceStripWidget> {
         ],
         if (widget.riskScores != null && widget.riskScores!.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.space20),
-          _buildRiskRatingSection(context),
+          _buildConsistencySection(context),
         ],
       ],
     );
@@ -285,6 +338,8 @@ class _AdherenceStripWidgetState extends State<AdherenceStripWidget> {
   }
 
   // ─── observations ─────────────────────────────────────────────────────────
+  // Unchanged — this block already does evidence-first copy well and isn't
+  // part of what we're redesigning.
 
   Widget _buildObservations(BuildContext context) {
     final typography = Theme.of(context).extension<AppTypography>()!;
@@ -317,8 +372,6 @@ class _AdherenceStripWidgetState extends State<AdherenceStripWidget> {
 
     final dayWindow = worst.statuses.length;
 
-    // Build worst observation text — report misses and skips separately
-    // so the user understands which is which.
     String worstText;
     if (worstMisses > 0 && worstSkips > 0) {
       worstText =
@@ -331,7 +384,6 @@ class _AdherenceStripWidgetState extends State<AdherenceStripWidget> {
           '${worst.name} — skipped $worstSkips of the last $dayWindow days.';
     }
 
-    // Colour driven by misses only — skips alone don't warrant risk colour.
     final worstColor = worstMisses >= 3
         ? AppColors.colorStateRisk
         : worstMisses > 0
@@ -414,9 +466,9 @@ class _AdherenceStripWidgetState extends State<AdherenceStripWidget> {
     );
   }
 
-  // ─── ml risk rating section ───────────────────────────────────────────────
+  // ─── consistency section (formerly "ML risk rating") ─────────────────────
 
-  Widget _buildRiskRatingSection(BuildContext context) {
+  Widget _buildConsistencySection(BuildContext context) {
     final typography = Theme.of(context).extension<AppTypography>()!;
     final allMeds = widget.data.medications;
 
@@ -444,7 +496,7 @@ class _AdherenceStripWidgetState extends State<AdherenceStripWidget> {
         Padding(
           padding: const EdgeInsets.only(bottom: AppSpacing.space8),
           child: Text(
-            'ML RISK RATING',
+            'YOUR CONSISTENCY',
             style: typography.textLabel.copyWith(
               color: AppColors.colorTextTertiary,
             ),
@@ -465,7 +517,7 @@ class _AdherenceStripWidgetState extends State<AdherenceStripWidget> {
             children: rows.asMap().entries.map((entry) {
               final isLast = entry.key == rows.length - 1;
               final row = entry.value;
-              return _buildRiskRow(
+              return _buildConsistencyRow(
                 context,
                 typography,
                 stripRow: row.stripRow,
@@ -489,7 +541,7 @@ class _AdherenceStripWidgetState extends State<AdherenceStripWidget> {
             ),
             const SizedBox(width: AppSpacing.space4),
             Text(
-              'ML-predicted · local fallback when offline',
+              'Estimated from your recent logs. Improves as more doses are recorded.',
               style: typography.textCaption.copyWith(
                 color: AppColors.colorTextTertiary,
               ),
@@ -500,15 +552,23 @@ class _AdherenceStripWidgetState extends State<AdherenceStripWidget> {
     );
   }
 
-  Widget _buildRiskRow(
+  Widget _buildConsistencyRow(
     BuildContext context,
     AppTypography typography, {
     required MedicationStripRow stripRow,
     required AdherenceRiskLevel riskLevel,
     required bool isLast,
   }) {
-    final badgeBg = _riskBadgeBackground(riskLevel);
-    final badgeFg = _riskBadgeForeground(riskLevel);
+    final coldStart = _isColdStart(stripRow);
+    final state = coldStart
+        ? _ConsistencyState.stillEarly
+        : switch (riskLevel) {
+            AdherenceRiskLevel.onTrack => _ConsistencyState.consistent,
+            AdherenceRiskLevel.atRisk => _ConsistencyState.slipping,
+            AdherenceRiskLevel.highRisk => _ConsistencyState.atRisk,
+          };
+    final config = _consistencyBadgeConfig(state);
+    final evidence = _evidenceText(stripRow, coldStart);
 
     return Container(
       decoration: BoxDecoration(
@@ -521,11 +581,12 @@ class _AdherenceStripWidgetState extends State<AdherenceStripWidget> {
                 ),
               ),
       ),
-      padding: const EdgeInsets.symmetric(
+      padding: EdgeInsets.symmetric(
         horizontal: AppSpacing.space16,
-        vertical: AppSpacing.space12,
+        vertical: AppSpacing.space16,
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Expanded(
             child: Column(
@@ -536,26 +597,27 @@ class _AdherenceStripWidgetState extends State<AdherenceStripWidget> {
                   stripRow.name,
                   style: typography.textBody.copyWith(
                     color: AppColors.colorTextPrimary,
-                    fontWeight: FontWeight.w500,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(height: AppSpacing.space2),
+                const SizedBox(height: AppSpacing.space4),
                 Text(
-                  stripRow.doseLabel,
+                  evidence,
                   style: typography.textCaption.copyWith(
-                    color: AppColors.colorTextTertiary,
+                    color: AppColors.colorTextSecondary,
                   ),
                 ),
               ],
             ),
           ),
+          const SizedBox(width: AppSpacing.space12),
           Container(
             padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.space12,
+              horizontal: AppSpacing.space10,
               vertical: AppSpacing.space4,
             ),
             decoration: BoxDecoration(
-              color: badgeBg,
+              color: config.background,
               borderRadius: AppRadius.pill,
             ),
             child: Row(
@@ -565,14 +627,16 @@ class _AdherenceStripWidgetState extends State<AdherenceStripWidget> {
                   width: 6,
                   height: 6,
                   decoration: BoxDecoration(
-                    color: badgeFg,
+                    color: config.foreground,
                     borderRadius: AppRadius.pill,
                   ),
                 ),
                 const SizedBox(width: AppSpacing.space4),
                 Text(
-                  _riskLabel(riskLevel),
-                  style: typography.textLabel.copyWith(color: badgeFg),
+                  config.label,
+                  style: typography.textLabel.copyWith(
+                    color: config.foreground,
+                  ),
                 ),
               ],
             ),
@@ -580,6 +644,60 @@ class _AdherenceStripWidgetState extends State<AdherenceStripWidget> {
         ],
       ),
     );
+  }
+
+  // ─── temporary widget-local heuristics ─────────────────────────────────
+  // See "KNOWN RULE EXCEPTION" in the file header. Both functions below
+  // are business logic living where the file's own rules say it shouldn't.
+  // Kept intentionally simple and isolated so they're easy to delete once
+  // AdherenceMedicationRisk carries this upstream instead.
+
+  /// True when a medication has no resolved dose history at all in the
+  /// visible window (every status is `later` or `dueNow` — nothing has
+  /// actually been taken, missed, or skipped yet). A coarse heuristic,
+  /// not a real data-sufficiency calculation — flagged as temporary.
+  bool _isColdStart(MedicationStripRow row) {
+    return row.statuses.every(
+      (s) => s.status == DoseStatus.later || s.status == DoseStatus.dueNow,
+    );
+  }
+
+  /// Builds the per-row evidence sentence. Mirrors the logic already in
+  /// _buildObservations but scoped to a single row instead of best/worst
+  /// across all medications, plus a same-day "taken today" lead-in when
+  /// applicable so a resolved outcome is never buried under stale framing.
+  String _evidenceText(MedicationStripRow row, bool coldStart) {
+    if (coldStart) {
+      return 'New — not enough history to judge a pattern yet.';
+    }
+
+    final dayWindow = row.statuses.length;
+    final misses = row.statuses
+        .where((s) => s.status == DoseStatus.missed)
+        .length;
+    final skips = row.statuses
+        .where((s) => s.status == DoseStatus.skipped)
+        .length;
+    final takenToday =
+        row.statuses.isNotEmpty && row.statuses.last.status == DoseStatus.taken;
+
+    if (misses == 0 && skips == 0) {
+      return takenToday
+          ? 'Taken today. No misses in the last $dayWindow days.'
+          : 'No misses in the last $dayWindow days.';
+    }
+
+    final String pattern;
+    if (misses > 0 && skips > 0) {
+      pattern =
+          'Missed $misses and skipped $skips of the last $dayWindow days.';
+    } else if (misses > 0) {
+      pattern = 'Missed $misses of the last $dayWindow days.';
+    } else {
+      pattern = 'Skipped $skips of the last $dayWindow days.';
+    }
+
+    return takenToday ? 'Taken today. $pattern' : pattern;
   }
 
   // ─── expand button ────────────────────────────────────────────────────────

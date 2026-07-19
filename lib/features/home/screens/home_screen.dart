@@ -5,16 +5,20 @@
 // RESPONSIBLE FOR: Home tab screen — renders greeting header, streak display,
 //                  and today's due medication list across all five states
 //                  with pull-to-refresh.
-// RECEIVES: nothing — all data read from HomeNotifier and StreakNotifier
+// RECEIVES: nothing — all data read from HomeNotifier, StreakNotifier, and
+//           TodaySummaryNotifier
 // RETURNS: nothing
 // CONNECTS TO: AppColors, AppSpacing, AppRadius, AppTypography, AppMotion,
-//              HomeNotifier, StreakNotifier, HomeMedicationCard,
-//              StreakDisplayWidget, LoadingPulseAnimation,
-//              DoseLogConfirmationAnimation
+//              HomeNotifier, StreakNotifier, TodaySummaryNotifier,
+//              HomeMedicationCard, StreakDisplayWidget, streak_message_builder.dart,
+//              LoadingPulseAnimation, DoseLogConfirmationAnimation
 // MUST NEVER: Call repositories, services, or Firebase SDKs directly.
 //             Hardcode any hex, dp, sp, duration, or radius value.
 //             Implement AnimationController.
 //             Derive urgency tier or format time remaining.
+//             Build streak card copy directly — that belongs in
+//             streak_message_builder.dart, this file only assembles inputs
+//             and hands them to buildStreakCardMessage.
 // ===
 
 // flutter
@@ -35,9 +39,16 @@ import 'package:medadhere/core/theme/app_animations.dart';
 // internal — state
 import 'package:medadhere/features/home/state/home_provider.dart';
 import 'package:medadhere/features/home/state/streak_notifier.dart';
+import 'package:medadhere/features/home/state/streak_message_builder.dart';
 import 'package:medadhere/shared/utils/time_parser.dart';
 
 import '../../../components/Medication_card_variant.dart';
+// NOTE: this import previously pointed at streak_counter.dart. Flagging,
+// not silently resolving — confirm whether StreakDisplayWidget's real
+// production file is streak_display_widget.dart (as built) or whether
+// streak_counter.dart is the actual filename and should be updated to
+// match instead. Left pointing at the path used throughout this redesign
+// pending that confirmation.
 import '../../../components/streak_counter.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -82,7 +93,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         'scheduleId': entry.medication.id,
         'scheduledTimeMs': entry.scheduledTime.millisecondsSinceEpoch,
         'slotId': TimeParser.buildSlotId(
-          // ← added
           entry.medication.id,
           entry.scheduledTime,
         ),
@@ -92,13 +102,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     if (mounted) {
       ref.read(homeProvider.notifier).loadDueMedications();
       ref.read(streakProvider.notifier).loadStreak();
+      // Today's tally can change from this single log action (a dose that
+      // was due today just moved from pending to logged) — invalidate
+      // alongside the other two so the card never shows stale counts.
+      ref.invalidate(todaySummaryProvider);
     }
   }
 
   Future<void> _onRefresh() async {
+    ref.invalidate(todaySummaryProvider);
     await Future.wait([
       ref.read(homeProvider.notifier).loadDueMedications(),
       ref.read(streakProvider.notifier).loadStreak(),
+      ref.read(todaySummaryProvider.future),
     ]);
   }
 
@@ -108,6 +124,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget build(BuildContext context) {
     final dueState = ref.watch(homeProvider);
     final streakState = ref.watch(streakProvider);
+    final todayState = ref.watch(todaySummaryProvider);
     final bool reduceMotion = MediaQuery.of(context).disableAnimations;
     final double width = MediaQuery.of(context).size.width;
     final double horizontalPadding = width < 360
@@ -124,7 +141,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           child: CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
-              _headerSliver(context, dueState, streakState, horizontalPadding),
+              _headerSliver(
+                context,
+                dueState,
+                streakState,
+                todayState,
+                horizontalPadding,
+              ),
               _contentSliver(
                 context,
                 dueState,
@@ -144,6 +167,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     BuildContext context,
     AsyncValue<List<DueMedicationEntry>> dueState,
     AsyncValue<StreakSummary> streakState,
+    AsyncValue<TodaySummary> todayState,
     double horizontalPadding,
   ) {
     final typography = Theme.of(context).extension<AppTypography>()!;
@@ -197,7 +221,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             const SizedBox(height: AppSpacing.space24),
 
             // Streak block — independent loading state
-            _streakBlock(context, streakState),
+            _streakBlock(context, dueState, streakState, todayState),
           ],
         ),
       ),
@@ -207,32 +231,44 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   // ─── Streak block ────────────────────────────────────────────────────────────
   //
   // Loading → skeleton pulse sized to match the card's natural content height.
-  // Error   → falls back to zero state — card always renders, never disappears.
-  // Data    → StreakDisplayWidget with all fields passed directly.
+  // Any source still loading with no prior value → skeleton, not a partial
+  //   or misleading render — the headline fuses streak + today, so a half-
+  //   loaded state would show one true fact stitched to a placeholder.
+  // Error   → falls back to each source's own .empty state; card always
+  //   renders, never disappears.
+  // Data    → all three sources resolved (or safely defaulted), message
+  //   built once via buildStreakCardMessage, passed to StreakDisplayWidget.
 
   Widget _streakBlock(
     BuildContext context,
+    AsyncValue<List<DueMedicationEntry>> dueState,
     AsyncValue<StreakSummary> streakState,
+    AsyncValue<TodaySummary> todayState,
   ) {
-    return streakState.when(
-      loading: () => _streakSkeleton(),
-      // On error, show zero state — card is always visible, never blank.
-      error: (_, __) => _streakWidget(StreakSummary.empty),
-      data: (summary) => _streakWidget(summary),
-    );
-  }
+    final streakLoading = streakState.isLoading && !streakState.hasValue;
+    final todayLoading = todayState.isLoading && !todayState.hasValue;
 
-  Widget _streakWidget(StreakSummary summary) {
-    return StreakDisplayWidget(
-      currentStreakDays: summary.currentStreakDays,
-      lastStreakDays: summary.lastStreakDays,
-      streakDisplayState: summary.streakDisplayState,
-      riskLevel: summary.riskLevel,
-      showStreakGrowthChip: summary.showStreakGrowthChip,
-      rollingRate7d: summary.rollingRate7d,
-      previousDayAdherence: summary.previousDayAdherence,
-      postMissRecoveryRate: summary.postMissRecoveryRate,
+    if (streakLoading || todayLoading) {
+      return _streakSkeleton();
+    }
+
+    final streak = streakState.value ?? StreakSummary.empty;
+    final today = todayState.value ?? TodaySummary.empty;
+    // dueState may still be loading independently of the streak card's own
+    // sources — a null/empty next dose degrades gracefully in the message
+    // builder ("Nothing due right now") rather than blocking the card.
+    final nextDose = (dueState.value ?? const []).isNotEmpty
+        ? dueState.value!.first
+        : null;
+
+    final message = buildStreakCardMessage(
+      streak: streak,
+      today: today,
+      nextDose: nextDose,
+      now: DateTime.now(),
     );
+
+    return StreakDisplayWidget(message: message);
   }
 
   // Skeleton uses an IntrinsicHeight-friendly fixed height that matches the

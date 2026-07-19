@@ -3,10 +3,14 @@
 // LAYER: state
 // DOMAIN: home
 // RESPONSIBLE FOR: Derives and exposes the filtered, sorted, and enriched
-//                  list of due medication entries for today's home screen.
+//                  list of due medication entries for today's home screen,
+//                  plus a same-day tally (total/logged/missed) used by the
+//                  streak card's "today" messaging.
 // RECEIVES: Ref — reads medicationServiceProvider, doseLogServiceProvider,
 //           categoryServiceProvider, authProvider
-// RETURNS: AsyncValue<List<DueMedicationEntry>>
+// RETURNS: AsyncValue<List<DueMedicationEntry>> (unchanged public contract);
+//          AsyncValue<TodaySummary> via todaySummaryProvider (new) — a thin
+//          watchable wrapper around HomeNotifier.getTodaySummary
 // CONNECTS TO: MedicationService, DoseLogService, CategoryService, AuthNotifier
 // MUST NEVER: Hold UI layout primitives, make direct repository requests,
 //             or import from parallel feature folders
@@ -39,7 +43,7 @@ part 'home_provider.g.dart';
 
 enum MedicationUrgencyTier { tier1, tier2, tier3, tier4 }
 
-// ─── View model ──────────────────────────────────────────────────────────────
+// ─── View models ─────────────────────────────────────────────────────────────
 
 class DueMedicationEntry {
   const DueMedicationEntry({
@@ -61,6 +65,56 @@ class DueMedicationEntry {
   final MedicationUrgencyTier urgencyTier;
   final String? categoryLabel;
   final AdherenceRiskLevel? adherenceRiskLevel;
+}
+
+/// Same-day dose tally for the home screen's streak/today card.
+///
+/// Built from the same resolved-dose pass as [DueMedicationEntry] so the
+/// card's "1 down, 2 to go" messaging can never disagree with the dose
+/// list rendered below it — both read off one resolution, not two.
+class TodaySummary {
+  const TodaySummary({
+    required this.total,
+    required this.logged,
+    required this.missed,
+  });
+
+  /// All dose slots scheduled for today, regardless of status.
+  final int total;
+
+  /// Doses with status [DoseStatus.taken] or [DoseStatus.skipped] —
+  /// anything the user has already acted on.
+  final int logged;
+
+  /// Doses with status [DoseStatus.missed], or overdue past the same
+  /// cutoff [_fetchDue] uses to drop entries from the due list.
+  final int missed;
+
+  /// Safe fallback for an unauthenticated or errored read. Renders as
+  /// "nothing scheduled" rather than a misleading zero-progress state —
+  /// callers should treat total == 0 as "don't show a today count," not
+  /// as "0 of 0 doses missed."
+  static const empty = TodaySummary(total: 0, logged: 0, missed: 0);
+}
+
+/// One resolved dose slot for a single medication, before any filtering
+/// or display formatting is applied. Internal to this file — [_fetchDue]
+/// and [getTodaySummary] each derive their own view from a list of these
+/// rather than re-querying or re-resolving status independently.
+class _ResolvedDose {
+  const _ResolvedDose({
+    required this.medication,
+    required this.timeStr,
+    required this.status,
+    required this.scheduledTime,
+    this.categoryLabel,
+  });
+
+  final Medication medication;
+  final String timeStr;
+  final DoseStatus status;
+  final DateTime? scheduledTime;
+  final String? categoryLabel;
 }
 
 // ─── Notifier ─────────────────────────────────────────────────────────────────
@@ -97,9 +151,25 @@ class HomeNotifier extends _$HomeNotifier {
     state = await AsyncValue.guard(() => _fetchDue(uid));
   }
 
-  Future<List<DueMedicationEntry>> _fetchDue(String uid) async {
-    final now = DateTime.now();
+  /// Today's dose tally for the streak card. Independent read from the
+  /// notifier's own [state] — callers (e.g. the streak notifier/message
+  /// builder) invoke this directly rather than watching it, since it's a
+  /// same-day snapshot, not part of the due-list stream.
+  ///
+  /// Returns [TodaySummary.empty] on any auth or fetch failure — the
+  /// streak card should quietly omit the today line rather than throw.
+  Future<TodaySummary> getTodaySummary(String uid) async {
+    final result = await AsyncValue.guard(() => _fetchTodaySummary(uid));
+    return result.value ?? TodaySummary.empty;
+  }
 
+  // ─── Shared resolution ───────────────────────────────────────────────────
+
+  /// Resolves every dose slot, for every medication, for the current
+  /// moment — no filtering, no formatting. Both [_fetchDue] and
+  /// [_fetchTodaySummary] build their view on top of this single pass,
+  /// so the due list and the today tally can never silently disagree.
+  Future<List<_ResolvedDose>> _resolveAllDoses(String uid, DateTime now) async {
     final futures = await Future.wait([
       ref.read(medicationServiceProvider).getMedications(uid),
       ref.read(categoryServiceProvider).getCategories(uid),
@@ -111,7 +181,7 @@ class HomeNotifier extends _$HomeNotifier {
     final categoryMap = {for (final c in categories) c.id: c.name};
     final doseLogService = ref.read(doseLogServiceProvider);
 
-    final entries = <DueMedicationEntry>[];
+    final resolved = <_ResolvedDose>[];
 
     for (final med in medications) {
       final statusMap = await doseLogService.resolveStatusesForMedication(
@@ -119,70 +189,137 @@ class HomeNotifier extends _$HomeNotifier {
         med.id,
         med.times,
         now,
-        med.createdAt, // ← added
+        med.createdAt,
       );
 
       for (final timeStr in med.times) {
-        final resolved = statusMap[timeStr];
-        final status = resolved?.status ?? DoseStatus.later;
+        final entry = statusMap[timeStr];
 
-        // Skip logged or finalized statuses
-        if (status == DoseStatus.taken ||
-            status == DoseStatus.skipped ||
-            status == DoseStatus.missed) {
-          continue;
-        }
-
-        // Skip past slots that predate medication creation
-        final scheduledTime = resolved?.scheduledTime;
-        if (scheduledTime == null) continue;
-
-        if (status == DoseStatus.later && scheduledTime.isBefore(now)) {
-          continue;
-        }
-
-        final delta = scheduledTime.difference(now);
-
-        // Filter out doses more than 12 hours away — not actionable yet
-        if (delta.inMinutes > 720) continue;
-
-        // Filter out doses more than 6 hours overdue — already missed
-        if (delta.inMinutes < -360) continue;
-
-        String displayRemaining;
-        MedicationUrgencyTier tier;
-
-        if (status == DoseStatus.overdue) {
-          displayRemaining = 'Overdue';
-          tier = MedicationUrgencyTier.tier4;
-        } else {
-          displayRemaining = _formatFutureTimeRemaining(delta);
-          tier = _deriveFutureUrgencyTier(delta);
-        }
-
-        entries.add(
-          DueMedicationEntry(
+        resolved.add(
+          _ResolvedDose(
             medication: med,
-            scheduledTime: scheduledTime,
-            scheduleLabel: TimeParser.buildScheduleLabel(
-              timeStr,
-              med.frequency,
-            ),
-            scheduledTimeDisplay: timeStr,
-            timeRemaining: displayRemaining,
-            urgencyTier: tier,
+            timeStr: timeStr,
+            status: entry?.status ?? DoseStatus.later,
+            scheduledTime: entry?.scheduledTime,
             categoryLabel: med.categoryId != null
                 ? categoryMap[med.categoryId!]
                 : null,
-            adherenceRiskLevel: null,
           ),
         );
       }
     }
 
+    return resolved;
+  }
+
+  // ─── Due list (unchanged behavior, now built on the shared pass) ────────
+
+  Future<List<DueMedicationEntry>> _fetchDue(String uid) async {
+    final now = DateTime.now();
+    final resolved = await _resolveAllDoses(uid, now);
+
+    final entries = <DueMedicationEntry>[];
+
+    for (final dose in resolved) {
+      final status = dose.status;
+
+      // Skip logged or finalized statuses
+      if (status == DoseStatus.taken ||
+          status == DoseStatus.skipped ||
+          status == DoseStatus.missed) {
+        continue;
+      }
+
+      // Skip past slots that predate medication creation
+      final scheduledTime = dose.scheduledTime;
+      if (scheduledTime == null) continue;
+
+      if (status == DoseStatus.later && scheduledTime.isBefore(now)) {
+        continue;
+      }
+
+      final delta = scheduledTime.difference(now);
+
+      // Filter out doses more than 12 hours away — not actionable yet
+      if (delta.inMinutes > 720) continue;
+
+      // Filter out doses more than 6 hours overdue — already missed
+      if (delta.inMinutes < -360) continue;
+
+      String displayRemaining;
+      MedicationUrgencyTier tier;
+
+      if (status == DoseStatus.overdue) {
+        displayRemaining = 'Overdue';
+        tier = MedicationUrgencyTier.tier4;
+      } else {
+        displayRemaining = _formatFutureTimeRemaining(delta);
+        tier = _deriveFutureUrgencyTier(delta);
+      }
+
+      entries.add(
+        DueMedicationEntry(
+          medication: dose.medication,
+          scheduledTime: scheduledTime,
+          scheduleLabel: TimeParser.buildScheduleLabel(
+            dose.timeStr,
+            dose.medication.frequency,
+          ),
+          scheduledTimeDisplay: dose.timeStr,
+          timeRemaining: displayRemaining,
+          urgencyTier: tier,
+          categoryLabel: dose.categoryLabel,
+          adherenceRiskLevel: null,
+        ),
+      );
+    }
+
     entries.sort((a, b) => a.scheduledTime.compareTo(b.scheduledTime));
 
     return entries;
+  }
+
+  // ─── Today summary (new) ─────────────────────────────────────────────────
+
+  /// Tallies today's resolved doses into total/logged/missed.
+  ///
+  /// Deliberately does NOT apply [_fetchDue]'s 12-hour-ahead or 6-hour-
+  /// overdue cutoffs — those exist to keep the actionable due list short,
+  /// not to define what counts as "today." A dose missed 8 hours ago is
+  /// still part of today's tally even though it's dropped from the due
+  /// list.
+  Future<TodaySummary> _fetchTodaySummary(String uid) async {
+    final now = DateTime.now();
+    final resolved = await _resolveAllDoses(uid, now);
+
+    final todayResolved = resolved.where((dose) {
+      final scheduledTime = dose.scheduledTime;
+      if (scheduledTime == null) return false;
+      return scheduledTime.year == now.year &&
+          scheduledTime.month == now.month &&
+          scheduledTime.day == now.day;
+    });
+
+    var total = 0;
+    var logged = 0;
+    var missed = 0;
+
+    for (final dose in todayResolved) {
+      total++;
+      switch (dose.status) {
+        case DoseStatus.taken:
+        case DoseStatus.skipped:
+          logged++;
+          break;
+        case DoseStatus.missed:
+          missed++;
+          break;
+        default:
+          break;
+      }
+    }
+
+    return TodaySummary(total: total, logged: logged, missed: missed);
   }
 }
 
@@ -205,4 +342,22 @@ String _formatFutureTimeRemaining(Duration delta) {
 
   if (hours == 0) return '${minutes}m';
   return '${hours}h ${minutes}m';
+}
+
+// ─── Today summary — watchable wrapper ─────────────────────────────────────
+//
+// Thin pass-through, not a second source of logic. All real aggregation
+// lives in HomeNotifier.getTodaySummary / _fetchTodaySummary above — this
+// exists only so the widget tree can `ref.watch` it, since a plain async
+// method on a Notifier isn't watchable on its own. Refresh via
+// `ref.invalidate(todaySummaryProvider)` rather than a hand-written
+// reload method.
+
+@riverpod
+Future<TodaySummary> todaySummary(Ref ref) async {
+  final authState = ref.watch(authProvider);
+  final String? uid = authState.value?.uid;
+  if (uid == null) return TodaySummary.empty;
+
+  return ref.read(homeProvider.notifier).getTodaySummary(uid);
 }

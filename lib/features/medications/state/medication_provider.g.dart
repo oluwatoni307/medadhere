@@ -42,7 +42,7 @@ final class MedicationNotifierProvider
 }
 
 String _$medicationNotifierHash() =>
-    r'a3e0ba78c8b815ed1c05d195786607b02b18cc22';
+    r'53b10355ba271eeb9d8c4dd48e7eed7affa3a294';
 
 abstract class _$MedicationNotifier extends $Notifier<MedicationState> {
   MedicationState build();

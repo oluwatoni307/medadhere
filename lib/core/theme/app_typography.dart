@@ -5,21 +5,41 @@
 //
 // TYPOGRAPHY RULES (non-negotiable — encode violations as purity failures):
 //   1. DM Serif Display is used only for: greeting display text, streak number,
-//      streak chip number, section hero moments. Never for body copy, labels,
-//      or UI controls.
+//      streak chip number, section hero moments, and streak headline sentence
+//      (textStreakHeadline — added under Amendment A002). Never for body copy,
+//      labels, or UI controls.
 //   2. Minimum visible text in this product: 13sp. No text style ever goes below this.
 //      Exception: textInsightCardEyebrow at 12sp — Visual Director approved (A006).
 //   3. Minimum body text: 15sp. Never compress. textBodySmall floor is 14sp.
 //      textCaption floor is 13sp.
 //   4. Line height for all paragraph text: 1.65 minimum. Never compress.
+//      Exception: textStreakHeadline at 1.42 — Amendment A002. Rationale: this
+//      style renders 1–2 short lines inside a fixed-height card, not flowing
+//      paragraph copy; 1.65 pushed the two-line case into visible card overflow
+//      on smaller devices during mockup review. Scoped to this style only —
+//      the 1.65 floor still governs every paragraph-copy token.
 //   5. Never permitted: condensed or compressed weights, italics in UI,
 //      any typeface activating clinical or monospaced associations.
+//      Exception: textStreakHeadline is set in italic — Amendment A002.
+//      Rationale: the home streak/today card was redesigned from a two-stat
+//      layout (raw streak count + weekly %) to a single adaptive sentence,
+//      specifically to move away from numbers-as-judgment framing (see home
+//      card redesign, streak_message_builder.dart). Italics were the
+//      deciding factor in Visual Director review — on this one surface,
+//      italic register reads as voice/narration rather than a UI control or
+//      data label, reinforcing that the text is a sentence, not a stat.
+//      Scoped exclusively to textStreakHeadline. No other style may use
+//      italics under this exception.
 //   6. textInsightCardEyebrow colour is never static. It receives the active
 //      adherence state colour at runtime from the Senior Dev.
 //   7. Both fonts are delivered via the Google Fonts package — zero runtime download.
 //      GoogleFonts.config.allowRuntimeFetching must be false in main.dart.
 //      Use GoogleFonts.dmSerifDisplay() and GoogleFonts.dmSans() as the font source.
 //      Never use fontFamily string references — silent fallback to system font.
+//
+// AMENDMENT LOG
+//   A002 — textStreakHeadline added. Italic DM Serif Display, 21sp, w500,
+//          lh 1.42. Amends rules 1, 4, 5 as scoped above. Approved.
 // ===
 
 import 'package:flutter/material.dart';
@@ -45,6 +65,7 @@ class AppTypography extends ThemeExtension<AppTypography> {
     required this.textStreakLabel,
     required this.textStreakChipNumber,
     required this.textStreakChipLabel,
+    required this.textStreakHeadline,
   });
 
   // ---------------------------------------------------------------------------
@@ -128,6 +149,19 @@ class AppTypography extends ThemeExtension<AppTypography> {
   /// apply AppColors.streakLabelColor at widget level.
   final TextStyle textStreakChipLabel;
 
+  /// DM Serif Display / 21sp / w500 / italic / lh 1.42
+  /// Added under Amendment A002 — see file header for full rationale.
+  /// The home streak/today card's single adaptive headline sentence
+  /// (built by streak_message_builder.dart). Colour is set at widget
+  /// level: AppColors.colorOnPrimary by default, AppColors.colorAccent
+  /// on a milestone render.
+  /// This is the ONLY style in the system permitted to use italics, and
+  /// the only paragraph-adjacent style permitted below the 1.65 line-height
+  /// floor. Do not repurpose for any other surface — if another card needs
+  /// sentence-style copy, propose a new amendment rather than reusing this
+  /// token, so each exception stays individually justified and traceable.
+  final TextStyle textStreakHeadline;
+
   // ---------------------------------------------------------------------------
   // THEME EXTENSION OVERRIDES
   // ---------------------------------------------------------------------------
@@ -149,6 +183,7 @@ class AppTypography extends ThemeExtension<AppTypography> {
     TextStyle? textStreakLabel,
     TextStyle? textStreakChipNumber,
     TextStyle? textStreakChipLabel,
+    TextStyle? textStreakHeadline,
   }) => AppTypography(
     textDisplay: textDisplay ?? this.textDisplay,
     textHeading1: textHeading1 ?? this.textHeading1,
@@ -166,6 +201,7 @@ class AppTypography extends ThemeExtension<AppTypography> {
     textStreakLabel: textStreakLabel ?? this.textStreakLabel,
     textStreakChipNumber: textStreakChipNumber ?? this.textStreakChipNumber,
     textStreakChipLabel: textStreakChipLabel ?? this.textStreakChipLabel,
+    textStreakHeadline: textStreakHeadline ?? this.textStreakHeadline,
   );
 
   @override
@@ -213,6 +249,11 @@ class AppTypography extends ThemeExtension<AppTypography> {
       textStreakChipLabel: TextStyle.lerp(
         textStreakChipLabel,
         other.textStreakChipLabel,
+        t,
+      )!,
+      textStreakHeadline: TextStyle.lerp(
+        textStreakHeadline,
+        other.textStreakHeadline,
         t,
       )!,
     );
@@ -363,6 +404,20 @@ abstract class AppTypographyStyles {
       height: 1.0,
       letterSpacing: 0,
       // apply AppColors.streakLabelColor at widget level.
+    ),
+
+    // → AMENDMENT A002: textStreakHeadline. Italic DM Serif Display — the
+    //   sole italic exception in this system. See file header rules 1, 4, 5
+    //   for full rationale. Colour intentionally omitted here — set at
+    //   widget level (colorOnPrimary default, colorAccent on milestone),
+    //   following the same runtime-color pattern already used by
+    //   textCaption, textNavLabel, and textInsightCardEyebrow above.
+    textStreakHeadline: GoogleFonts.dmSerifDisplay(
+      fontSize: 21,
+      fontWeight: FontWeight.w500,
+      fontStyle: FontStyle.italic,
+      height: 1.42,
+      letterSpacing: 0,
     ),
   );
 }

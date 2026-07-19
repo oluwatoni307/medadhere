@@ -11,6 +11,21 @@
 //   4. Dark mode is deferred. This file is light-mode only.
 //   5. Colour is never the sole carrier of meaning. Every state expressed in colour
 //      is also expressed in a text label or icon.
+//
+// AMENDMENT LOG
+//   A007 — badgeDueBackground / badgeDueText reassigned. Previously
+//          badgeDueBackground pointed at colorStateSlippingSurface — the
+//          exact same token as badgeSkippedBackground, so Due and
+//          Skipped rendered with an identical background fill in the
+//          weekly adherence dot grid and its legend. badgeDueText was
+//          also a separate hardcoded value (#7A4E0A) never tied to any
+//          named token. Reassigned both to colorStateMorning /
+//          colorStateMorningSurface — a token pair already defined in
+//          this file and, until now, unused anywhere in the medication
+//          card badge set. "Due" is a neutral not-yet-resolved state,
+//          not a caution state, so the Cold Start blue fits its meaning
+//          better than the borrowed Slipping amber did. See
+//          _adherence_strip_widget.dart legend for the affected UI.
 // ===
 
 import 'package:flutter/material.dart';
@@ -95,13 +110,7 @@ class AppColors {
   /// interactive muted surfaces in future.
   static const Color colorTimeChipSurface = colorSurfaceMuted;
 
-  //
-  //
-  //
   // ---------------------------------------------------------------------------
-  static const Color badgeSkippedBackground =
-      colorStateSlippingSurface; // colorStateDuskSurface
-  static const Color badgeSkippedText = colorStateSlipping; // colorStateDusk
   // ADHERENCE ARC STATE TOKENS
   // These are the emotional architecture of the product.
   // Four states map the user's medication journey from cold start to at-risk.
@@ -156,13 +165,21 @@ class AppColors {
   static const Color badgeTakenBackground = colorStateConsistentSurface;
   static const Color badgeTakenText = colorStateConsistent;
 
-  static const Color badgeDueBackground = colorStateSlippingSurface;
+  /// Amendment A007 — was colorStateSlippingSurface, identical to
+  /// badgeSkippedBackground below (a real visual collision in the weekly
+  /// dot grid). Reassigned to the previously-unused Cold Start blue.
+  static const Color badgeDueBackground = colorStateMorningSurface;
 
-  /// Dark amber — badge due text only. No other use in this product.
-  static const Color badgeDueText = Color(0xFF7A4E0A);
+  /// Amendment A007 — was a standalone hardcoded #7A4E0A with no named
+  /// token backing it. Reassigned to colorStateMorning to pair with the
+  /// new badgeDueBackground.
+  static const Color badgeDueText = colorStateMorning;
 
   static const Color badgeMissedBackground = colorStateRiskSurface;
   static const Color badgeMissedText = colorStateRisk;
+
+  static const Color badgeSkippedBackground = colorStateSlippingSurface;
+  static const Color badgeSkippedText = colorStateSlipping;
 
   /// Later badge background — rgba(28, 43, 30, 0.07) — very subtle forest tint.
   static const Color badgeLaterBackground = Color.fromRGBO(28, 43, 30, 0.07);

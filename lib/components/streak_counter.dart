@@ -2,17 +2,20 @@
 // FILE: streak_display_widget.dart
 // LAYER: UI
 // DOMAIN: home
-// RESPONSIBLE FOR: Renders the streak card — streak count left, weekly
-//                  adherence rate right. Single layout, no state switching.
-//                  Contract unchanged — all fields received, only the two
-//                  needed for the current layout are consumed.
-// RECEIVES: currentStreakDays, lastStreakDays, streakDisplayState, riskLevel,
-//           showStreakGrowthChip, rollingRate7d, previousDayAdherence,
-//           postMissRecoveryRate
+// RESPONSIBLE FOR: Renders the home screen's streak/today card — a single
+//                  headline sentence fusing streak continuity with today's
+//                  status, plus a quiet secondary line ("Next: <med> in
+//                  <time>" or "Today's done"). Pure render — all copy
+//                  decisions happen upstream in streak_message_builder.dart;
+//                  this widget never branches on state itself beyond the
+//                  milestone visual treatment.
+// RECEIVES: StreakCardMessage (built)
 // RETURNS: Widget
 // CONNECTS TO: app_colors.dart, app_typography.dart, app_spacing.dart,
-//              app_radius.dart, streak_display_state.dart
-// MUST NEVER: call any service, fetch from Firestore, hold business logic
+//              app_radius.dart, streak_message_builder.dart
+// MUST NEVER: call any service, fetch from Firestore, hold business logic,
+//             or branch on StreakDisplayState/DoseStatus directly — that
+//             belongs in streak_message_builder.dart
 // ============================================
 
 import 'package:flutter/material.dart';
@@ -21,35 +24,16 @@ import '../core/theme/app_colors.dart';
 import '../core/theme/app_radius.dart';
 import '../core/theme/app_spacing.dart';
 import '../core/theme/app_typography.dart';
-import '../shared/models/adherence_risk_score.dart';
-import '../shared/models/streak.dart';
+import '../features/home/state/streak_message_builder.dart';
 
 class StreakDisplayWidget extends StatelessWidget {
-  const StreakDisplayWidget({
-    super.key,
-    required this.currentStreakDays,
-    required this.lastStreakDays,
-    required this.streakDisplayState,
-    required this.riskLevel,
-    required this.showStreakGrowthChip,
-    required this.rollingRate7d,
-    required this.previousDayAdherence,
-    required this.postMissRecoveryRate,
-  });
+  const StreakDisplayWidget({super.key, required this.message});
 
-  final int currentStreakDays;
-  final int lastStreakDays;
-  final StreakDisplayState streakDisplayState;
-  final AdherenceRiskLevel riskLevel;
-  final bool showStreakGrowthChip;
-  final double rollingRate7d;
-  final double previousDayAdherence;
-  final double postMissRecoveryRate;
+  final StreakCardMessage message;
 
   @override
   Widget build(BuildContext context) {
     final typography = Theme.of(context).extension<AppTypography>()!;
-    final ratePercent = '${(rollingRate7d * 100).round()}%';
 
     return Container(
       width: double.infinity,
@@ -58,57 +42,66 @@ class StreakDisplayWidget extends StatelessWidget {
         vertical: AppSpacing.space24,
       ),
       decoration: BoxDecoration(
+        // Deep Forest — the same flat colorPrimary token used everywhere
+        // else on-dark. Matches the sampled production color almost
+        // exactly (#1C2B1E vs sampled #1D2B1E). No gradient — this file's
+        // own rules defer dark-mode/multi-stop surfaces; every other
+        // on-dark surface in the app is flat, this card stays consistent
+        // with that rather than introducing a one-off treatment.
         color: AppColors.colorPrimary,
         borderRadius: AppRadius.card,
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        crossAxisAlignment: CrossAxisAlignment.end,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          // ── Left: streak count ──
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                '$currentStreakDays',
-                style: typography.textStreakNumber.copyWith(
-                  color: AppColors.colorAccent,
-                  height: 1.0,
-                ),
+          // ── Headline: fused streak + today sentence ──
+          // textStreakHeadline — Amendment A002. Italic DM Serif Display,
+          // the one sanctioned exception to this system's no-italics rule.
+          // See app_typography.dart file header for full rationale.
+          // Milestone renders get colorAccent (Aged Gold) — the one
+          // documented "achievement" token. Every other render uses
+          // colorOnPrimary (Warm Parchment), same as any other text on
+          // a colorPrimary surface elsewhere in the app. Rule 5 (colour
+          // is never the sole carrier of meaning) is still satisfied —
+          // the milestone copy itself, not just the color, signals the
+          // moment.
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 220),
+            child: Text(
+              message.headline,
+              key: ValueKey(message.headline),
+              style: typography.textStreakHeadline.copyWith(
+                color: message.isMilestone
+                    ? AppColors.colorAccent
+                    : AppColors.colorOnPrimary,
+                height: 1.4,
               ),
-              const SizedBox(height: AppSpacing.space4),
-              Text(
-                'days in a row',
-                style: typography.textStreakLabel.copyWith(
-                  color: AppColors.streakLabelColor,
-                ),
-              ),
-            ],
+            ),
           ),
 
-          // ── Right: weekly rate ──
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            mainAxisSize: MainAxisSize.min,
+          const SizedBox(height: AppSpacing.space20),
+
+          // ── Divider ──
+          // No dedicated on-dark divider token exists yet. Derived from
+          // colorOnPrimary at low opacity, following the same pattern
+          // colorBorder already uses (colorPrimary at 0.10) for its
+          // light-surface equivalent — consistent method, inverted base.
+          Container(
+            height: 1,
+            color: AppColors.colorOnPrimary.withOpacity(0.10),
+          ),
+
+          const SizedBox(height: AppSpacing.space16),
+
+          // ── Secondary line: quiet, never competes with the headline ──
+          // streakLabelColor (white @ 72%) is the token the original
+          // widget already used for this exact role — kept as-is.
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'This week',
-                style: typography.textCaption.copyWith(
-                  color: AppColors.streakLabelColor,
-                ),
-              ),
-              const SizedBox(height: AppSpacing.space2),
-              Text(
-                ratePercent,
-                style: typography.textHeading2.copyWith(
-                  color: AppColors.colorAccent,
-                  height: 1.0,
-                ),
-              ),
-              const SizedBox(height: AppSpacing.space4),
-              Text(
-                'of doses taken',
+                message.secondaryLine,
                 style: typography.textCaption.copyWith(
                   color: AppColors.streakLabelColor,
                 ),
