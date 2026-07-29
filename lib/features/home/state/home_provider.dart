@@ -77,6 +77,7 @@ class TodaySummary {
     required this.total,
     required this.logged,
     required this.missed,
+    required this.overdue,
   });
 
   /// All dose slots scheduled for today, regardless of status.
@@ -86,15 +87,22 @@ class TodaySummary {
   /// anything the user has already acted on.
   final int logged;
 
-  /// Doses with status [DoseStatus.missed], or overdue past the same
-  /// cutoff [_fetchDue] uses to drop entries from the due list.
+  /// Doses with status [DoseStatus.missed] specifically — a status your
+  /// system has already finalized as missed, distinct from overdue.
   final int missed;
+
+  /// Doses with status [DoseStatus.overdue] — past their scheduled time
+  /// but not yet finalized as missed. Tracked separately from [missed]
+  /// because it was previously falling through to neither logged nor
+  /// missed, which let the streak card report "nothing logged yet" on a
+  /// day already showing several overdue doses in the list below it.
+  final int overdue;
 
   /// Safe fallback for an unauthenticated or errored read. Renders as
   /// "nothing scheduled" rather than a misleading zero-progress state —
   /// callers should treat total == 0 as "don't show a today count," not
   /// as "0 of 0 doses missed."
-  static const empty = TodaySummary(total: 0, logged: 0, missed: 0);
+  static const empty = TodaySummary(total: 0, logged: 0, missed: 0, overdue: 0);
 }
 
 /// One resolved dose slot for a single medication, before any filtering
@@ -303,6 +311,7 @@ class HomeNotifier extends _$HomeNotifier {
     var total = 0;
     var logged = 0;
     var missed = 0;
+    var overdue = 0;
 
     for (final dose in todayResolved) {
       total++;
@@ -314,12 +323,20 @@ class HomeNotifier extends _$HomeNotifier {
         case DoseStatus.missed:
           missed++;
           break;
+        case DoseStatus.overdue:
+          overdue++;
+          break;
         default:
           break;
       }
     }
 
-    return TodaySummary(total: total, logged: logged, missed: missed);
+    return TodaySummary(
+      total: total,
+      logged: logged,
+      missed: missed,
+      overdue: overdue,
+    );
   }
 }
 

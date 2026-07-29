@@ -6,16 +6,16 @@
 //                  headline sentence fusing streak continuity with today's
 //                  status, plus a quiet secondary line ("Next: <med> in
 //                  <time>" or "Today's done"). Pure render — all copy
-//                  decisions happen upstream in streak_message_builder.dart;
-//                  this widget never branches on state itself beyond the
-//                  milestone visual treatment.
+//                  decisions happen upstream in buildStreakCardMessage
+//                  (streak_notifier.dart); this widget never branches on
+//                  state itself beyond the milestone visual treatment.
 // RECEIVES: StreakCardMessage (built)
 // RETURNS: Widget
 // CONNECTS TO: app_colors.dart, app_typography.dart, app_spacing.dart,
-//              app_radius.dart, streak_message_builder.dart
+//              app_radius.dart, streak_notifier.dart
 // MUST NEVER: call any service, fetch from Firestore, hold business logic,
 //             or branch on StreakDisplayState/DoseStatus directly — that
-//             belongs in streak_message_builder.dart
+//             belongs in buildStreakCardMessage (streak_notifier.dart)
 // ============================================
 
 import 'package:flutter/material.dart';
@@ -24,7 +24,7 @@ import '../core/theme/app_colors.dart';
 import '../core/theme/app_radius.dart';
 import '../core/theme/app_spacing.dart';
 import '../core/theme/app_typography.dart';
-import '../features/home/state/streak_message_builder.dart';
+import '../features/home/state/streak_notifier.dart';
 
 class StreakDisplayWidget extends StatelessWidget {
   const StreakDisplayWidget({super.key, required this.message});
@@ -95,18 +95,20 @@ class StreakDisplayWidget extends StatelessWidget {
           const SizedBox(height: AppSpacing.space16),
 
           // ── Secondary line: quiet, never competes with the headline ──
-          // streakLabelColor (white @ 72%) is the token the original
-          // widget already used for this exact role — kept as-is.
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                message.secondaryLine,
-                style: typography.textCaption.copyWith(
-                  color: AppColors.streakLabelColor,
-                ),
+          // Right-aligned to match the original mockup's two-column
+          // intent (label left, value right). message.secondaryLine is
+          // a single combined string, not two separate values, so this
+          // is a simple right-align rather than a true two-column split —
+          // see chat note if the fuller "Next" / value split is wanted
+          // later instead.
+          Align(
+            alignment: Alignment.centerRight,
+            child: Text(
+              message.secondaryLine,
+              style: typography.textCaption.copyWith(
+                color: AppColors.streakLabelColor,
               ),
-            ],
+            ),
           ),
         ],
       ),

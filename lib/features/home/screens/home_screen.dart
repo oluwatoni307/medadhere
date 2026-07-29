@@ -10,15 +10,15 @@
 // RETURNS: nothing
 // CONNECTS TO: AppColors, AppSpacing, AppRadius, AppTypography, AppMotion,
 //              HomeNotifier, StreakNotifier, TodaySummaryNotifier,
-//              HomeMedicationCard, StreakDisplayWidget, streak_message_builder.dart,
+//              HomeMedicationCard, StreakDisplayWidget,
 //              LoadingPulseAnimation, DoseLogConfirmationAnimation
 // MUST NEVER: Call repositories, services, or Firebase SDKs directly.
 //             Hardcode any hex, dp, sp, duration, or radius value.
 //             Implement AnimationController.
 //             Derive urgency tier or format time remaining.
 //             Build streak card copy directly — that belongs in
-//             streak_message_builder.dart, this file only assembles inputs
-//             and hands them to buildStreakCardMessage.
+//             buildStreakCardMessage (streak_notifier.dart), this file
+//             only assembles inputs and hands them off.
 // ===
 
 // flutter
@@ -39,17 +39,16 @@ import 'package:medadhere/core/theme/app_animations.dart';
 // internal — state
 import 'package:medadhere/features/home/state/home_provider.dart';
 import 'package:medadhere/features/home/state/streak_notifier.dart';
-import 'package:medadhere/features/home/state/streak_message_builder.dart';
 import 'package:medadhere/shared/utils/time_parser.dart';
 
 import '../../../components/Medication_card_variant.dart';
+import '../../../components/streak_counter.dart';
 // NOTE: this import previously pointed at streak_counter.dart. Flagging,
 // not silently resolving — confirm whether StreakDisplayWidget's real
 // production file is streak_display_widget.dart (as built) or whether
 // streak_counter.dart is the actual filename and should be updated to
 // match instead. Left pointing at the path used throughout this redesign
 // pending that confirmation.
-import '../../../components/streak_counter.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
