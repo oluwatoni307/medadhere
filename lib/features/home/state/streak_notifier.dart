@@ -264,20 +264,31 @@ bool _deriveShowGrowthChip({
 
 class StreakCardMessage {
   const StreakCardMessage({
-    required this.headline,
-    required this.secondaryLine,
+    required this.headlineLead,
+    required this.headlineDetail,
+    required this.secondaryLabel,
+    required this.secondaryValue,
     required this.isMilestone,
   });
 
-  /// The card's primary sentence — carries both the streak framing and
-  /// today's status in one line. Never contains the word "streak" —
-  /// see tone note below.
-  final String headline;
+  /// The card's primary clause — plain-colored, first line. Never
+  /// contains the word "streak" — see tone note below.
+  final String headlineLead;
 
-  /// The quiet, secondary line — "Next: <med> in <time>",
-  /// "Tomorrow: first dose at <time>", or "Today's done." Smaller,
-  /// muted styling in the widget — never competes with the headline.
-  final String secondaryLine;
+  /// The second clause, rendered in accent color on its own line when
+  /// present. Null for genuinely single-clause states — those render
+  /// [headlineLead] alone rather than forcing an artificial split.
+  final String? headlineDetail;
+
+  /// Left-aligned label for the secondary line — "Next", "Tomorrow", or
+  /// null when there's no label/value split (e.g. "Today's done." reads
+  /// as one plain sentence, not a label + value pair).
+  final String? secondaryLabel;
+
+  /// Right-aligned value for the secondary line when [secondaryLabel] is
+  /// present ("Metformin in 2h 50m"). When [secondaryLabel] is null, this
+  /// is the entire secondary line's text, rendered alone.
+  final String secondaryValue;
 
   /// True when this render is a one-time milestone moment (3/7/14/30/90
   /// days). The widget uses this to apply the distinct-but-restrained
@@ -309,22 +320,31 @@ const List<int> _milestoneDays = [3, 7, 14, 30, 90];
 bool _isMilestoneDay(int currentStreakDays) =>
     _milestoneDays.contains(currentStreakDays);
 
-String _milestoneHeadline(int currentStreakDays) {
+({String lead, String? detail}) _milestoneHeadline(int currentStreakDays) {
   switch (currentStreakDays) {
     case 3:
-      return "Three days in. It's starting to become routine.";
+      return (
+        lead: "Three days in. It's starting to become routine.",
+        detail: null,
+      );
     case 7:
-      return 'One full week of steady care.';
+      return (lead: 'One full week of steady care.', detail: null);
     case 14:
-      return 'Two weeks — this is holding.';
+      return (lead: 'Two weeks — this is holding.', detail: null);
     case 30:
-      return 'A month of consistent care. Might be worth checking your refill.';
+      return (
+        lead: 'A month of consistent care.',
+        detail: 'Might be worth checking your refill.',
+      );
     case 90:
-      return 'Three months, steady. That\'s real continuity of care.';
+      return (
+        lead: 'Three months, steady.',
+        detail: "That's real continuity of care.",
+      );
     default:
       // Unreachable if _isMilestoneDay gated the call, but never throw
       // over copy — fall back to the ordinary active-streak framing.
-      return 'On track for $currentStreakDays days.';
+      return (lead: 'On track for $currentStreakDays days.', detail: null);
   }
 }
 
@@ -363,26 +383,37 @@ StreakCardMessage buildStreakCardMessage({
       todayStatus != _TodayStatus.missed;
 
   if (showMilestone) {
+    final headline = _milestoneHeadline(streak.currentStreakDays);
+    final secondary = _secondary(todayStatus, today, nextDose);
     return StreakCardMessage(
-      headline: _milestoneHeadline(streak.currentStreakDays),
-      secondaryLine: _secondaryLine(todayStatus, today, nextDose),
+      headlineLead: headline.lead,
+      headlineDetail: headline.detail,
+      secondaryLabel: secondary.label,
+      secondaryValue: secondary.value,
       isMilestone: true,
     );
   }
 
   final headline = _headline(streak, todayStatus, today);
-  final secondary = _secondaryLine(todayStatus, today, nextDose);
+  final secondary = _secondary(todayStatus, today, nextDose);
 
   return StreakCardMessage(
-    headline: headline,
-    secondaryLine: secondary,
+    headlineLead: headline.lead,
+    headlineDetail: headline.detail,
+    secondaryLabel: secondary.label,
+    secondaryValue: secondary.value,
     isMilestone: false,
   );
 }
 
 // ─── Headline grid ──────────────────────────────────────────────────────────
+//
+// Every headline is a (lead, detail) pair, not one flat sentence. Matches
+// the original mockup: lead renders plain, detail renders in accent color
+// on its own line. detail is null for genuinely single-clause states —
+// those render as one plain line, no forced split.
 
-String _headline(
+({String lead, String? detail}) _headline(
   StreakSummary streak,
   _TodayStatus todayStatus,
   TodaySummary today,
@@ -397,87 +428,120 @@ String _headline(
   }
 }
 
-String _firstTimeHeadline(_TodayStatus status, TodaySummary today) {
+({String lead, String? detail}) _firstTimeHeadline(
+  _TodayStatus status,
+  TodaySummary today,
+) {
   switch (status) {
     case _TodayStatus.notStarted:
-      return today.total == 1
-          ? "Let's get started — one dose today."
-          : "Let's get started — ${today.total} doses to log today.";
+      return (
+        lead: "Let's get started",
+        detail: today.total == 1
+            ? 'One dose today.'
+            : '${today.total} doses to log today.',
+      );
     case _TodayStatus.inProgress:
-      return "You're on your way — ${today.logged} down, "
-          '${today.total - today.logged} to go.';
+      return (
+        lead: "You're on your way",
+        detail: '${today.logged} down, ${today.total - today.logged} to go.',
+      );
     case _TodayStatus.complete:
-      return "That's day one done.";
+      return (lead: "That's day one done.", detail: null);
     case _TodayStatus.missed:
-      return 'Nothing logged yet, and that\'s okay — '
-          'log the next one whenever you\'re ready.';
+      return (
+        lead: 'Nothing logged yet, and that\'s okay',
+        detail: 'Log the next one whenever you\'re ready.',
+      );
   }
 }
 
-String _lapsedHeadline(
+({String lead, String? detail}) _lapsedHeadline(
   _TodayStatus status,
   TodaySummary today,
   int lastStreakDays,
 ) {
   final bestRun = lastStreakDays > 0
-      ? ' Your best run was $lastStreakDays days.'
-      : '';
+      ? 'Your best run was $lastStreakDays days.'
+      : null;
 
   switch (status) {
     case _TodayStatus.notStarted:
-      return 'Starting fresh today.$bestRun';
+      return (lead: 'Starting fresh today.', detail: bestRun);
     case _TodayStatus.inProgress:
-      return 'Back on track — ${today.logged} down, '
-          '${today.total - today.logged} to go.';
+      return (
+        lead: 'Back on track',
+        detail: '${today.logged} down, ${today.total - today.logged} to go.',
+      );
     case _TodayStatus.complete:
-      return "Day one of a new run, done.$bestRun";
+      return (lead: "Day one of a new run, done.", detail: bestRun);
     case _TodayStatus.missed:
-      return 'One gap doesn\'t erase the rest — '
-          'log the next one when you can.';
+      return (
+        lead: 'One gap doesn\'t erase the rest',
+        detail: 'Log the next one when you can.',
+      );
   }
 }
 
-String _activeHeadline(
+({String lead, String? detail}) _activeHeadline(
   _TodayStatus status,
   TodaySummary today,
   int currentStreakDays,
 ) {
-  final base = 'On track for $currentStreakDays days';
+  final lead = 'On track for $currentStreakDays days';
 
   switch (status) {
     case _TodayStatus.notStarted:
-      return '$base.';
+      return (lead: lead, detail: null);
     case _TodayStatus.inProgress:
-      return '$base — ${today.logged} down, '
-          '${today.total - today.logged} to go.';
+      return (
+        lead: lead,
+        detail: '${today.logged} down, ${today.total - today.logged} to go.',
+      );
     case _TodayStatus.complete:
-      return today.total == 1
-          ? '$base — today\'s done.'
-          : '$base — that\'s ${today.total} for ${today.total} today.';
+      return (
+        lead: lead,
+        detail: today.total == 1
+            ? "Today's done."
+            : 'That\'s ${today.total} for ${today.total} today.',
+      );
     case _TodayStatus.missed:
       // Deliberately drops the day-count pairing — see tone note above.
-      return 'This one slipped — catch it up when you can.';
+      // Single clause, no lead/detail split — pairing "this slipped" with
+      // its own accent-colored follow-up would visually separate two
+      // halves of what should read as one gentle acknowledgment.
+      return (
+        lead: 'This one slipped — catch it up when you can.',
+        detail: null,
+      );
   }
 }
 
 // ─── Secondary line ─────────────────────────────────────────────────────────
 
-String _secondaryLine(
+/// Returns the secondary line as a (label, value) pair. label is null for
+/// single-sentence states ("Today's done.") — the widget renders those as
+/// one plain line, right-aligned, with no label column. label is "Next"
+/// for an actual upcoming/overdue dose, matching the two-column mockup:
+/// label pinned left, value pinned right.
+({String? label, String value}) _secondary(
   _TodayStatus status,
   TodaySummary today,
   DueMedicationEntry? nextDose,
 ) {
   if (status == _TodayStatus.complete) {
-    return "Today's done.";
+    return (label: null, value: "Today's done.");
   }
 
   if (nextDose == null) {
     // No due entries left, but not all logged — likely all remaining
     // slots are more than 12h out or already past the overdue cutoff.
     // Avoid implying nothing is scheduled.
-    return today.missed > 0
-        ? 'Catch up when you\'re ready.'
-        : 'Nothing due right now.';
+    return (
+      label: null,
+      value: today.missed > 0
+          ? 'Catch up when you\'re ready.'
+          : 'Nothing due right now.',
+    );
   }
 
   // timeRemaining can be the literal string 'Overdue' (see home_provider.dart
@@ -485,8 +549,11 @@ String _secondaryLine(
   // template only makes grammatical sense for a duration. Overdue gets its
   // own phrasing instead of silently producing "in Overdue".
   if (nextDose.timeRemaining == 'Overdue') {
-    return 'Next: ${nextDose.medication.name} — overdue';
+    return (label: 'Next', value: '${nextDose.medication.name} — overdue');
   }
 
-  return 'Next: ${nextDose.medication.name} in ${nextDose.timeRemaining}';
+  return (
+    label: 'Next',
+    value: '${nextDose.medication.name} in ${nextDose.timeRemaining}',
+  );
 }

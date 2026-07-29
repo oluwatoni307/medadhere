@@ -19,12 +19,12 @@
 // ============================================
 
 import 'package:flutter/material.dart';
+import 'package:medadhere/features/home/state/streak_notifier.dart';
 
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_radius.dart';
 import '../core/theme/app_spacing.dart';
 import '../core/theme/app_typography.dart';
-import '../features/home/state/streak_notifier.dart';
 
 class StreakDisplayWidget extends StatelessWidget {
   const StreakDisplayWidget({super.key, required this.message});
@@ -55,28 +55,47 @@ class StreakDisplayWidget extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          // ── Headline: fused streak + today sentence ──
+          // ── Headline: lead clause + optional accent detail clause ──
           // textStreakHeadline — Amendment A002. Italic DM Serif Display,
           // the one sanctioned exception to this system's no-italics rule.
           // See app_typography.dart file header for full rationale.
-          // Milestone renders get colorAccent (Aged Gold) — the one
-          // documented "achievement" token. Every other render uses
-          // colorOnPrimary (Warm Parchment), same as any other text on
-          // a colorPrimary surface elsewhere in the app. Rule 5 (colour
-          // is never the sole carrier of meaning) is still satisfied —
-          // the milestone copy itself, not just the color, signals the
+          // Two lines when headlineDetail is present, matching the
+          // original mockup (lead plain, detail in accent brass on its
+          // own line) — this was previously flattened into one
+          // single-color sentence, which read as a dense, undifferentiated
+          // wall of text. Single line when detail is null.
+          // Milestone renders get colorAccent on the lead line too — the
+          // one documented "achievement" token. Rule 5 (colour is never
+          // the sole carrier of meaning) is still satisfied — the
+          // milestone copy itself, not just the color, signals the
           // moment.
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 220),
-            child: Text(
-              message.headline,
-              key: ValueKey(message.headline),
-              style: typography.textStreakHeadline.copyWith(
-                color: message.isMilestone
-                    ? AppColors.colorAccent
-                    : AppColors.colorOnPrimary,
-                height: 1.4,
+            child: Column(
+              key: ValueKey(
+                '${message.headlineLead}|${message.headlineDetail}',
               ),
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  message.headlineLead,
+                  style: typography.textStreakHeadline.copyWith(
+                    color: message.isMilestone
+                        ? AppColors.colorAccent
+                        : AppColors.colorOnPrimary,
+                    height: 1.4,
+                  ),
+                ),
+                if (message.headlineDetail != null)
+                  Text(
+                    message.headlineDetail!,
+                    style: typography.textStreakHeadline.copyWith(
+                      color: AppColors.colorAccent,
+                      height: 1.4,
+                    ),
+                  ),
+              ],
             ),
           ),
 
@@ -95,21 +114,42 @@ class StreakDisplayWidget extends StatelessWidget {
           const SizedBox(height: AppSpacing.space16),
 
           // ── Secondary line: quiet, never competes with the headline ──
-          // Right-aligned to match the original mockup's two-column
-          // intent (label left, value right). message.secondaryLine is
-          // a single combined string, not two separate values, so this
-          // is a simple right-align rather than a true two-column split —
-          // see chat note if the fuller "Next" / value split is wanted
-          // later instead.
-          Align(
-            alignment: Alignment.centerRight,
-            child: Text(
-              message.secondaryLine,
-              style: typography.textCaption.copyWith(
-                color: AppColors.streakLabelColor,
+          // Two-column layout when there's a label ("Next" / value),
+          // matching the original mockup's label-left, value-right
+          // intent. Falls back to a single right-aligned line for
+          // label-less states ("Today's done.") where a label/value
+          // split doesn't make sense.
+          if (message.secondaryLabel != null)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  message.secondaryLabel!,
+                  style: typography.textCaption.copyWith(
+                    color: AppColors.streakLabelColor,
+                  ),
+                ),
+                Flexible(
+                  child: Text(
+                    message.secondaryValue,
+                    style: typography.textCaption.copyWith(
+                      color: AppColors.streakLabelColor,
+                    ),
+                    textAlign: TextAlign.right,
+                  ),
+                ),
+              ],
+            )
+          else
+            Align(
+              alignment: Alignment.centerRight,
+              child: Text(
+                message.secondaryValue,
+                style: typography.textCaption.copyWith(
+                  color: AppColors.streakLabelColor,
+                ),
               ),
             ),
-          ),
         ],
       ),
     );
