@@ -34,7 +34,7 @@ class DoseLog {
   factory DoseLog.fromMap(Map<String, dynamic> map) {
     return DoseLog(
       id: map['id'] as String,
-      slotId: map['slotId'] as String,
+      slotId: map['slotId'] as String? ?? '',
       scheduleId: map['scheduleId'] as String,
       medicationId: map['medicationId'] as String,
       status: DoseStatus.values.byName(map['status'] as String),

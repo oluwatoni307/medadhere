@@ -91,13 +91,26 @@ class StreakNotifier extends _$StreakNotifier {
     return const AsyncValue.loading();
   }
 
+  // FIX: guard against writing to `state` after this provider has been
+  // disposed (autodispose can tear this provider down while `_fetchStreak`
+  // is still mid-flight — e.g. during a brief watcher gap around
+  // navigation). Without this check, resuming after the await throws
+  // "Cannot use the Ref of streakProvider after it has been disposed,"
+  // the state write never happens, and the streak card silently keeps
+  // showing its previous value even though the underlying data changed.
   Future<void> _init() async {
-    state = await AsyncValue.guard(_fetchStreak);
+    final result = await AsyncValue.guard(_fetchStreak);
+    if (ref.mounted) {
+      state = result;
+    }
   }
 
   Future<void> loadStreak() async {
     state = const AsyncValue.loading();
-    state = await AsyncValue.guard(_fetchStreak);
+    final result = await AsyncValue.guard(_fetchStreak);
+    if (ref.mounted) {
+      state = result;
+    }
   }
 
   Future<StreakSummary> _fetchStreak() async {

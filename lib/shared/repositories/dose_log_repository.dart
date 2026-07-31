@@ -8,8 +8,12 @@
 // RETURNS: List<DoseLog> and void
 // CONNECTS TO: dose_log.dart, app_exception.dart, hive_init_service.dart, connectivity_service.dart
 // MUST NEVER: import Flutter, call services or providers, block the caller on network I/O
+//
+// TEMP DIAGNOSTIC LOGGING — added to trace why the dashboard shows no
+// data on a fresh install. Remove the debugPrint calls once resolved.
 // ============================================
 
+import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:hive/hive.dart';
 
@@ -37,21 +41,32 @@ class DoseLogRepository {
 
   Future<bool> get _isOnline => ConnectivityService.instance.isOnline;
 
-  List<DoseLog> _allCached(String uid) => _box.keys
-      .where(
-        (k) =>
-            k.toString().startsWith('$uid/') &&
-            !k.toString().endsWith(_pendingSuffix),
-      )
-      .map((k) => _box.get(k))
-      .whereType<DoseLog>()
-      .toList();
+  List<DoseLog> _allCached(String uid) {
+    final result = _box.keys
+        .where(
+          (k) =>
+              k.toString().startsWith('$uid/') &&
+              !k.toString().endsWith(_pendingSuffix),
+        )
+        .map((k) => _box.get(k))
+        .whereType<DoseLog>()
+        .toList();
+    debugPrint(
+      'DoseLogRepository: _allCached($uid) → ${result.length} entries '
+      '(box has ${_box.keys.length} total keys)',
+    );
+    return result;
+  }
 
   // ─── public interface ─────────────────────────────────────
 
   Future<List<DoseLog>> getAll(String uid) async {
     try {
       final cached = _allCached(uid);
+      debugPrint(
+        'DoseLogRepository.getAll($uid): returning ${cached.length} '
+        'cached, triggering background sync',
+      );
       _syncAllFromFirestore(uid);
       return cached;
     } catch (e) {
@@ -67,6 +82,10 @@ class DoseLogRepository {
       final cached = _allCached(
         uid,
       ).where((l) => l.medicationId == medicationId).toList();
+      debugPrint(
+        'DoseLogRepository.getByMedicationId($uid, $medicationId): '
+        'returning ${cached.length} cached, triggering background sync',
+      );
       _syncAllFromFirestore(uid);
       return cached;
     } catch (e) {
@@ -92,6 +111,10 @@ class DoseLogRepository {
                 !l.scheduledTime.isAfter(end),
           )
           .toList();
+      debugPrint(
+        'DoseLogRepository.getByDateRange($uid, $start, $end): '
+        'returning ${cached.length} cached, triggering background sync',
+      );
       _syncAllFromFirestore(uid);
       return cached;
     } catch (e) {
@@ -121,16 +144,32 @@ class DoseLogRepository {
   // ─── background sync helpers ──────────────────────────────
 
   Future<void> _syncAllFromFirestore(String uid) async {
-    if (!await _isOnline) return;
+    final online = await _isOnline;
+    debugPrint(
+      'DoseLogRepository: _syncAllFromFirestore($uid) — online=$online',
+    );
+    if (!online) {
+      debugPrint('DoseLogRepository: sync SKIPPED — offline for uid $uid');
+      return;
+    }
     try {
       final snapshot = await _collection(uid).get();
+      debugPrint(
+        'DoseLogRepository: sync fetched ${snapshot.docs.length} docs '
+        'for uid $uid',
+      );
       for (final doc in snapshot.docs) {
         final log = DoseLog.fromMap(doc.data());
         await _box.put(_key(uid, log.id), log);
         await _box.delete(_pendingKey(uid, log.id));
       }
-    } catch (_) {
-      // Silent — caller already has cached data
+      debugPrint(
+        'DoseLogRepository: sync wrote ${snapshot.docs.length} docs to Hive '
+        'for uid $uid — box now has ${_box.keys.length} total keys',
+      );
+    } catch (e, st) {
+      debugPrint('DoseLogRepository: sync FAILED for uid $uid: $e\n$st');
+      // Silent to caller — caller already has cached data
     }
   }
 
