@@ -43,7 +43,7 @@ final class HomeNotifierProvider
   }
 }
 
-String _$homeNotifierHash() => r'a5bf69f354c5834521c4ea1da54d061f9081d2b3';
+String _$homeNotifierHash() => r'f1d60936c08c720e878f89ef522e79f226f083c3';
 
 abstract class _$HomeNotifier
     extends $Notifier<AsyncValue<List<DueMedicationEntry>>> {

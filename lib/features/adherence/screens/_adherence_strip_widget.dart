@@ -5,18 +5,24 @@
 // RESPONSIBLE FOR: Renders the 7-day per-medication dot strip.
 //                  Shows top 3 medications by default, expandable to all.
 //                  Each row: drug name label + 7 status dots.
-//                  Renders the "Your Consistency" section when riskScores
-//                  is provided — evidence-first per-medication rows with a
-//                  scoped consistency badge (On track / Slipping / At
-//                  risk / Still early), not a bare risk label.
+//                  Renders the "Your Consistency" section based on
+//                  riskScoresAsync — a skeleton while loading, a retry
+//                  state on genuine failure, or evidence-first per-
+//                  medication rows on data. Loading and error are now
+//                  visibly distinct — previously both collapsed into the
+//                  section silently rendering nothing.
 // RECEIVES: data: AdherenceStripData,
-//           riskScores: List<AdherenceMedicationRisk>? — null hides the
-//           consistency section
+//           riskScoresAsync: AsyncValue<List<AdherenceMedicationRisk>>? —
+//           null means "not requested," non-null carries loading/error/data
+//           onRetryRiskScores: VoidCallback? — called when the retry
+//           button is tapped on the error state; the widget itself never
+//           invalidates a provider directly (MUST NEVER declare/watch one)
 // RETURNS: Column of medication rows inside a card surface,
-//          optional consistency card below
+//          optional consistency card (skeleton / error / data) below
 // CONNECTS TO: adherence_visualization_screen.dart,
 //              adherence_visualization_models.dart,
-//              adherence_dashboard_state.dart
+//              adherence_dashboard_state.dart,
+//              app_animations.dart (LoadingPulseAnimation)
 // MUST NEVER: watch any provider, declare providers, call routing,
 //             hardcode any value, contain business logic
 //
@@ -34,6 +40,9 @@
 
 // flutter
 import 'package:flutter/material.dart';
+// packages
+import 'package:flutter_riverpod/flutter_riverpod.dart' show AsyncValue;
+import 'package:riverpod_annotation/riverpod_annotation.dart';
 // models
 import '../../../shared/models/adherence_visualization_models.dart';
 import '../../../shared/models/adherence_dashboard_state.dart';
@@ -44,6 +53,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/theme/app_animations.dart';
 
 // ─── constants ────────────────────────────────────────────────────────────────
 
@@ -60,13 +70,6 @@ List<String> _buildDayLabels() {
 }
 
 // ─── consistency badge model ───────────────────────────────────────────────────
-//
-// Four states, matching the finalized design: On track / Slipping /
-// At risk / Still early (Cold Start). Deliberately not a 1:1 switch on
-// AdherenceRiskLevel — that enum only has three values, and the badge
-// text is intentionally NOT the same as the raw enum name (see the
-// atRisk/highRisk relabeling below — this was already mismatched with
-// its own color before this change).
 
 enum _ConsistencyState { consistent, slipping, atRisk, stillEarly }
 
@@ -89,27 +92,16 @@ _ConsistencyBadgeConfig _consistencyBadgeConfig(_ConsistencyState state) =>
         background: AppColors.colorStateConsistentSurface,
         foreground: AppColors.colorStateConsistent,
       ),
-      // NOTE: this bucket was previously labeled "At Risk" while already
-      // using the Slipping color tokens. Label corrected to match the
-      // color it's always rendered in — no visual change, text now tells
-      // the truth.
       _ConsistencyState.slipping => _ConsistencyBadgeConfig(
         label: 'Slipping',
         background: AppColors.colorStateSlippingSurface,
         foreground: AppColors.colorStateSlipping,
       ),
-      // NOTE: this bucket was previously labeled "High Risk" (the enum
-      // name is highRisk) — relabeled to "At risk" to match the
-      // finalized copy; this is the only genuinely "at risk" state.
       _ConsistencyState.atRisk => _ConsistencyBadgeConfig(
         label: 'At risk',
         background: AppColors.colorStateRiskSurface,
         foreground: AppColors.colorStateRisk,
       ),
-      // Cold Start is a real, distinct risk state (early nonadherence
-      // risk), not a muted/absent one — gets its own token, not a grey
-      // "unknown" treatment. Deliberately drops the word "risk" — see
-      // finalized copy decision.
       _ConsistencyState.stillEarly => _ConsistencyBadgeConfig(
         label: 'Still early',
         background: AppColors.colorStateMorningSurface,
@@ -120,14 +112,26 @@ _ConsistencyBadgeConfig _consistencyBadgeConfig(_ConsistencyState state) =>
 // ─── widget ───────────────────────────────────────────────────────────────────
 
 class AdherenceStripWidget extends StatefulWidget {
-  const AdherenceStripWidget({super.key, required this.data, this.riskScores});
+  const AdherenceStripWidget({
+    super.key,
+    required this.data,
+    this.riskScoresAsync,
+    this.onRetryRiskScores,
+  });
 
   final AdherenceStripData data;
 
-  /// Per-medication ML risk levels from adherenceProvider.
-  /// When null the consistency section is not rendered.
-  /// When present, matched to strip rows by medicationId.
-  final List<AdherenceMedicationRisk>? riskScores;
+  /// Per-medication ML risk levels from adherenceProvider, carried as a
+  /// real AsyncValue so loading and error are visibly distinct instead of
+  /// both collapsing to "section absent." Null means not requested at
+  /// all — in practice the screen always passes a value once dashboard
+  /// state exists in any form.
+  final AsyncValue<List<AdherenceMedicationRisk>>? riskScoresAsync;
+
+  /// Called when the user taps retry on a genuine load failure. The
+  /// widget never invalidates a provider itself — stays the caller's
+  /// responsibility, per this file's own MUST NEVER rule.
+  final VoidCallback? onRetryRiskScores;
 
   @override
   State<AdherenceStripWidget> createState() => _AdherenceStripWidgetState();
@@ -135,19 +139,6 @@ class AdherenceStripWidget extends StatefulWidget {
 
 class _AdherenceStripWidgetState extends State<AdherenceStripWidget> {
   bool _expanded = false;
-
-  // ─── risk lookup ──────────────────────────────────────────────────────────
-
-  AdherenceRiskLevel? _riskFor(String medicationId) {
-    if (widget.riskScores == null) return null;
-    try {
-      return widget.riskScores!
-          .firstWhere((r) => r.medicationId == medicationId)
-          .riskLevel;
-    } catch (_) {
-      return null;
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -168,9 +159,9 @@ class _AdherenceStripWidgetState extends State<AdherenceStripWidget> {
           const SizedBox(height: AppSpacing.space20),
           _buildObservations(context),
         ],
-        if (widget.riskScores != null && widget.riskScores!.isNotEmpty) ...[
+        if (widget.riskScoresAsync != null) ...[
           const SizedBox(height: AppSpacing.space20),
-          _buildConsistencySection(context),
+          _buildConsistencyBlock(context),
         ],
       ],
     );
@@ -338,8 +329,6 @@ class _AdherenceStripWidgetState extends State<AdherenceStripWidget> {
   }
 
   // ─── observations ─────────────────────────────────────────────────────────
-  // Unchanged — this block already does evidence-first copy well and isn't
-  // part of what we're redesigning.
 
   Widget _buildObservations(BuildContext context) {
     final typography = Theme.of(context).extension<AppTypography>()!;
@@ -466,13 +455,112 @@ class _AdherenceStripWidgetState extends State<AdherenceStripWidget> {
     );
   }
 
+  // ─── consistency block: dispatches loading / error / data ─────────────────
+
+  Widget _buildConsistencyBlock(BuildContext context) {
+    return widget.riskScoresAsync!.when(
+      loading: () => _buildConsistencySkeleton(context),
+      error: (e, st) => _buildConsistencyError(context),
+      data: (scores) => _buildConsistencySection(context, scores),
+    );
+  }
+
+  Widget _buildConsistencySkeleton(BuildContext context) {
+    final typography = Theme.of(context).extension<AppTypography>()!;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: AppSpacing.space8),
+          child: Text(
+            'YOUR CONSISTENCY',
+            style: typography.textLabel.copyWith(
+              color: AppColors.colorTextTertiary,
+            ),
+          ),
+        ),
+        LoadingPulseAnimation(
+          isLoading: true,
+          child: Container(
+            width: double.infinity,
+            height: AppSpacing.space48 * 3,
+            decoration: BoxDecoration(
+              color: AppColors.colorSkeleton,
+              borderRadius: AppRadius.card,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildConsistencyError(BuildContext context) {
+    final typography = Theme.of(context).extension<AppTypography>()!;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: AppSpacing.space8),
+          child: Text(
+            'YOUR CONSISTENCY',
+            style: typography.textLabel.copyWith(
+              color: AppColors.colorTextTertiary,
+            ),
+          ),
+        ),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(AppSpacing.space16),
+          decoration: BoxDecoration(
+            color: AppColors.colorCard,
+            borderRadius: AppRadius.card,
+            border: Border.all(
+              color: AppColors.colorBorder,
+              width: AppSpacing.medicationCardBorderWidth,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                "Couldn't load your consistency ratings.",
+                style: typography.textBodySmall.copyWith(
+                  color: AppColors.colorTextSecondary,
+                ),
+              ),
+              if (widget.onRetryRiskScores != null) ...[
+                const SizedBox(height: AppSpacing.space8),
+                GestureDetector(
+                  onTap: widget.onRetryRiskScores,
+                  child: Text(
+                    'Try again',
+                    style: typography.textBodySmall.copyWith(
+                      color: AppColors.colorStateConsistent,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   // ─── consistency section (formerly "ML risk rating") ─────────────────────
 
-  Widget _buildConsistencySection(BuildContext context) {
+  Widget _buildConsistencySection(
+    BuildContext context,
+    List<AdherenceMedicationRisk> riskScores,
+  ) {
     final typography = Theme.of(context).extension<AppTypography>()!;
     final allMeds = widget.data.medications;
 
-    final rows = widget.riskScores!
+    final rows = riskScores
         .map((risk) {
           try {
             final stripRow = allMeds.firstWhere(
@@ -581,9 +669,9 @@ class _AdherenceStripWidgetState extends State<AdherenceStripWidget> {
                 ),
               ),
       ),
-      padding: EdgeInsets.symmetric(
+      padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.space16,
-        vertical: AppSpacing.space16,
+        vertical: AppSpacing.space12,
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
@@ -647,25 +735,14 @@ class _AdherenceStripWidgetState extends State<AdherenceStripWidget> {
   }
 
   // ─── temporary widget-local heuristics ─────────────────────────────────
-  // See "KNOWN RULE EXCEPTION" in the file header. Both functions below
-  // are business logic living where the file's own rules say it shouldn't.
-  // Kept intentionally simple and isolated so they're easy to delete once
-  // AdherenceMedicationRisk carries this upstream instead.
+  // See "KNOWN RULE EXCEPTION" in the file header.
 
-  /// True when a medication has no resolved dose history at all in the
-  /// visible window (every status is `later` or `dueNow` — nothing has
-  /// actually been taken, missed, or skipped yet). A coarse heuristic,
-  /// not a real data-sufficiency calculation — flagged as temporary.
   bool _isColdStart(MedicationStripRow row) {
     return row.statuses.every(
       (s) => s.status == DoseStatus.later || s.status == DoseStatus.dueNow,
     );
   }
 
-  /// Builds the per-row evidence sentence. Mirrors the logic already in
-  /// _buildObservations but scoped to a single row instead of best/worst
-  /// across all medications, plus a same-day "taken today" lead-in when
-  /// applicable so a resolved outcome is never buried under stale framing.
   String _evidenceText(MedicationStripRow row, bool coldStart) {
     if (coldStart) {
       return 'New — not enough history to judge a pattern yet.';

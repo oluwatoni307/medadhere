@@ -252,11 +252,13 @@ class _AdherenceVisualizationScreenState
       ),
     );
   }
-
   // ─── strip view ───────────────────────────────────────────────────────────
-  // Passes riskScores from adherenceProvider to AdherenceStripWidget.
-  // Strip renders without ML section while adherenceProvider is loading —
-  // section appears once dashboard state resolves. Progressive enhancement.
+  // Passes riskScores from adherenceProvider to AdherenceStripWidget as a
+  // real AsyncValue (via whenData) instead of collapsing loading/error into
+  // a single nullable list — the widget can now show a skeleton while
+  // loading and a distinct retry state on genuine failure, instead of both
+  // cases silently rendering as "section absent."
+
   Widget _buildStripView(
     BuildContext context,
     AsyncValue<AdherenceDashboardState> dashboardAsync,
@@ -270,72 +272,17 @@ class _AdherenceVisualizationScreenState
           padding: const EdgeInsets.symmetric(
             horizontal: AppSpacing.viewportMarginHorizontal,
           ),
-          child: Column(
-            children: [
-              AdherenceStripWidget(
-                data: data,
-                riskScores: dashboardAsync.maybeWhen(
-                  data: (state) => state.medicationRiskScores,
-                  orElse: () =>
-                      null, // loading only — the dot grid above still renders fine either way
-                ),
-              ),
-              // Consistency section gets its own explicit failure state,
-              // instead of silently vanishing when dashboardAsync errors.
-              dashboardAsync.when(
-                data: (_) => const SizedBox.shrink(), // handled above already
-                loading: () =>
-                    const SizedBox.shrink(), // progressive enhancement — no error, just not ready yet
-                error: (e, st) => Padding(
-                  padding: const EdgeInsets.only(top: AppSpacing.space20),
-                  child: _buildConsistencyError(context),
-                ),
-              ),
-            ],
+          child: AdherenceStripWidget(
+            data: data,
+            riskScoresAsync: dashboardAsync.whenData(
+              (state) => state.medicationRiskScores,
+            ),
+            onRetryRiskScores: () => ref.invalidate(adherenceProvider),
           ),
         );
       },
     );
   }
-
-  Widget _buildConsistencyError(BuildContext context) {
-    final typography = Theme.of(context).extension<AppTypography>()!;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.space16),
-      decoration: BoxDecoration(
-        color: AppColors.colorCard,
-        borderRadius: AppRadius.card,
-        border: Border.all(
-          color: AppColors.colorBorder,
-          width: AppSpacing.medicationCardBorderWidth,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            "Couldn't load your consistency ratings.",
-            style: typography.textBodySmall.copyWith(
-              color: AppColors.colorTextSecondary,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.space8),
-          GestureDetector(
-            onTap: () => ref.invalidate(adherenceProvider),
-            child: Text(
-              'Try again',
-              style: typography.textBodySmall.copyWith(
-                color: AppColors.colorStateConsistent,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   // ─── month view ───────────────────────────────────────────────────────────
 
   Widget _buildMonthView(BuildContext context) {

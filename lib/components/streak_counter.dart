@@ -1,5 +1,5 @@
 // ============================================
-// FILE: streak_display_widget.dart
+// FILE: streak_counter.dart
 // LAYER: UI
 // DOMAIN: home
 // RESPONSIBLE FOR: Renders the home screen's streak/today card — a single
